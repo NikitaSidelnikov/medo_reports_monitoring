@@ -362,8 +362,8 @@ order by name asc</CommandText>
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>DataStart</rd:DefaultName>
-            <Top>11.92388mm</Top>
-            <Left>38.21822mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>36.45433mm</Left>
             <Height>5.85738mm</Height>
             <Width>23.75805mm</Width>
             <ZIndex>1</ZIndex>
@@ -397,8 +397,8 @@ order by name asc</CommandText>
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>11.92388mm</Top>
-            <Left>68.72002mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>66.95613mm</Left>
             <Height>5.85739mm</Height>
             <Width>52.1484mm</Width>
             <ZIndex>2</ZIndex>
@@ -459,7 +459,7 @@ order by name asc</CommandText>
                   </TextRun>
                 </TextRuns>
                 <Style>
-                  <TextAlign>Right</TextAlign>
+                  <TextAlign>Left</TextAlign>
                 </Style>
               </Paragraph>
             </Paragraphs>
@@ -467,7 +467,7 @@ order by name asc</CommandText>
             <Top>11.92388mm</Top>
             <Left>33.32655mm</Left>
             <Height>5.85739mm</Height>
-            <Width>4.89167mm</Width>
+            <Width>3.12778mm</Width>
             <ZIndex>4</ZIndex>
             <Style>
               <Border>
@@ -3132,7 +3132,7 @@ order by name asc</CommandText>
                 <Value>=Fields!Member.Value</Value>
               </SortExpression>
             </SortExpressions>
-            <Top>18.48684mm</Top>
+            <Top>25.40254mm</Top>
             <Left>0mm</Left>
             <Height>26.74258mm</Height>
             <Width>490.03838mm</Width>
@@ -3162,8 +3162,8 @@ order by name asc</CommandText>
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>11.92388mm</Top>
-            <Left>61.97627mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>60.21238mm</Left>
             <Height>5.85739mm</Height>
             <Width>6.74375mm</Width>
             <ZIndex>6</ZIndex>
@@ -3177,8 +3177,75 @@ order by name asc</CommandText>
               <PaddingBottom>2pt</PaddingBottom>
             </Style>
           </Textbox>
+          <Textbox Name="Textbox61">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>Получатель:</Value>
+                    <Style>
+                      <FontFamily>Yu Gothic UI</FontFamily>
+                      <FontWeight>Bold</FontWeight>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style />
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox59</rd:DefaultName>
+            <Top>17.78127mm</Top>
+            <Left>0mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>33.32655mm</Width>
+            <ZIndex>7</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="DataStart2">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>=Lookup(Parameters!Recipient.Value, Fields!guid.Value, Fields!Name.Value, "GetRecipient")</Value>
+                    <Style>
+                      <FontFamily>Yu Gothic UI</FontFamily>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Left</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>DataStart</rd:DefaultName>
+            <Top>17.78127mm</Top>
+            <Left>33.32655mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>85.77798mm</Width>
+            <ZIndex>8</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
         </ReportItems>
-        <Height>45.22943mm</Height>
+        <Height>52.14512mm</Height>
         <Style>
           <Border>
             <Style>None</Style>
