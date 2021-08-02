@@ -17,74 +17,51 @@
       <Query>
         <DataSourceName>DataSource1</DataSourceName>
         <QueryParameters>
-          <QueryParameter Name="@Package">
-            <Value>=Parameters!Package.Value</Value>
+          <QueryParameter Name="@LogId">
+            <Value>=Parameters!LogId.Value</Value>
           </QueryParameter>
         </QueryParameters>
-        <CommandText>SELECT  --AllCriterionGroupScore  --оценки выбранного лога пакета с учетом всех групп критериев
-	ScoreLog.ValidationLog
-	,CriterionGroup.Id			AS CriterionGroupId
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @LogId INT
+--SET @LogId = 1
+-------------------------------------------------------------------
+
+SELECT  --AllCriterionGroupScore  --оценки выбранного лога пакета с учетом всех групп критериев
+	--ScoreLog.ValidationLog
+	CriterionGroup.Id			AS CriterionGroupId
 	,CriterionGroup.Object		AS CriterionGroupName
 	,CriterionGroup.ScoreValue	AS MaxCriterionGroupValue
 	,Criterion.Code				AS CriterionId  
 	,Criterion.Name				AS CriterionName
 	,Criterion.ScoreValue		AS MaxCriterionValue
-	,ScoreLog.MemberGuid
-
+	--,ScoreLog.MemberGuid
 	,ScoreLog.Value
 	,ScoreLog.Description
 FROM (
 	SELECT --ScoreLog  --оценки выбранного лога пакета
-		ValidationLog.Package
-		,ValidationLog.Id		AS ValidationLog
+		Score.ValidationLog
 		,Score.Criterion
 		,Score.MemberGuid
 		,Score.Value
 		,Score.Description
 	FROM Score
-	INNER JOIN ValidationLog
-		ON ValidationLog.Id = Score.ValidationLog
-	INNER JOIN (
-		SELECT -- SuccesPackage = актуальная дата лога пакета. Если логи по пакету менялись, то берем последний обработанный лог
-			SuccesLogs.Package				AS PackageId
-			,MAX(SuccesLogs.ValidatedOn)	AS Max_ValidatedOn
-		FROM (	
-			SELECT -- SuccesLogs = лог выбранного валидного и обработанного пакета
-				ValidationLog.Package
-				,ValidationLog.ValidatedOn
-			FROM
-				ValidationLog
-			INNER JOIN Package
-				ON Package.Id = ValidationLog.Package
-			WHERE 
-				Success = 1
-				AND Package.Id = @Package
-				--AND Package.Id = 1
-		) AS SuccesLogs
-
-		GROUP BY SuccesLogs.Package
-	) AS SuccesPackage
-		ON SuccesPackage.PackageId = ValidationLog.Package
-		AND SuccesPackage.Max_ValidatedOn = ValidationLog.ValidatedOn
+	WHERE
+		ValidationLog = @LogId
 ) AS ScoreLog
-
 RIGHT JOIN Criterion
 	ON Criterion.Code = ScoreLog.Criterion
 INNER JOIN CriterionGroup
-	ON Criterion.CriterionGroup = CriterionGroup.Id</CommandText>
+	ON Criterion.CriterionGroup = CriterionGroup.Id
+</CommandText>
         <rd:UseGenericDesigner>true</rd:UseGenericDesigner>
       </Query>
       <Fields>
-        <Field Name="ValidationLog">
-          <DataField>ValidationLog</DataField>
-          <rd:TypeName>System.Int64</rd:TypeName>
+        <Field Name="CriterionGroupName">
+          <DataField>CriterionGroupName</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
         </Field>
         <Field Name="CriterionGroupId">
           <DataField>CriterionGroupId</DataField>
-          <rd:TypeName>System.String</rd:TypeName>
-        </Field>
-        <Field Name="CriterionGroupName">
-          <DataField>CriterionGroupName</DataField>
           <rd:TypeName>System.String</rd:TypeName>
         </Field>
         <Field Name="MaxCriterionGroupValue">
@@ -103,10 +80,6 @@ INNER JOIN CriterionGroup
           <DataField>MaxCriterionValue</DataField>
           <rd:TypeName>System.Int32</rd:TypeName>
         </Field>
-        <Field Name="MemberGuid">
-          <DataField>MemberGuid</DataField>
-          <rd:TypeName>System.String</rd:TypeName>
-        </Field>
         <Field Name="Value">
           <DataField>Value</DataField>
           <rd:TypeName>System.Int32</rd:TypeName>
@@ -122,13 +95,20 @@ INNER JOIN CriterionGroup
         <DataSourceName>DataSource1</DataSourceName>
         <CommandText>SELECT 
 	Name
+	,Guid
 FROM 
 	Member
-ORDER BY Name</CommandText>
+WHERE
+	Active = 1
+ORDER BY Name </CommandText>
       </Query>
       <Fields>
         <Field Name="Name">
           <DataField>Name</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="Guid">
+          <DataField>Guid</DataField>
           <rd:TypeName>System.String</rd:TypeName>
         </Field>
       </Fields>
@@ -140,62 +120,79 @@ ORDER BY Name</CommandText>
           <QueryParameter Name="@Member">
             <Value>=Parameters!Member.Value</Value>
           </QueryParameter>
-          <QueryParameter Name="@DataStart">
-            <Value>=Parameters!DataStart.Value</Value>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
           </QueryParameter>
-          <QueryParameter Name="@DataEnd">
-            <Value>=Parameters!DataEnd.Value</Value>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
           </QueryParameter>
         </QueryParameters>
-        <CommandText>SELECT 
-	Package.Id
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @Member CHAR(36)
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--SET @Member = 'ecc99082-f3b4-4028-8007-a7f69d6cd1d7'
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-06-01'
+-------------------------------------------------------------------
+
+SELECT 
+	CONCAT(N'№', Package.Id, N' от ', FORMAT(Package.ReceivedOn, 'dd.MM.yyyy')) AS PackageId
+	,Packages.LogId
 FROM 
-	Member
-INNER JOIN Subscriber
-	ON Subscriber.Member = Member.Id
-INNER JOIN Batch
-	ON Batch.Subscriber = Subscriber.Id
-INNER JOIN Package
-	ON Package.Batch = Batch.Id --находим Package через Batch (через score не делаем, ибо там много записей и очень долго обрабатывается)
-
+	Package
 INNER JOIN  (
-	SELECT -- SuccesDate - актуальные валидные пакеты. Если логи по пакету менялись, то берем последний обработанный лог пакета
-		SuccesLogs.Package				AS Package
-		,MAX(SuccesLogs.ValidatedOn)	AS Max_ValidatedOn
-	FROM (	
-		SELECT -- SuccesLogs = логи, которые были успешно обработаны (succes=1)
-			Package
-			,ValidatedOn
-		FROM
-			ValidationLog
-		WHERE 
-			Success = 1
-	) AS SuccesLogs
-
-	GROUP BY
-		SuccesLogs.Package
-) AS SuccesDate
-	ON SuccesDate.Package = Package.Id
-
+	SELECT 
+		SuccesDate.Package
+		,ValidationLog.Id AS LogId
+	FROM(
+		SELECT -- SuccesDate - актуальные валидные пакеты. Если логи по пакету менялись, то берем последний обработанный лог пакета
+			SuccesLogs.Package				AS Package
+			,MAX(SuccesLogs.ValidatedOn)	AS MaxValidatedOn
+		FROM (	
+			SELECT -- SuccesLogs = логи, которые были успешно обработаны (succes=1)
+				Package
+				,ValidatedOn
+			FROM
+				ValidationLog
+			WHERE 
+				Success = 1 --??
+		) AS SuccesLogs
+		GROUP BY
+			SuccesLogs.Package
+	) AS SuccesDate
+	INNER JOIN ValidationLog
+		ON ValidationLog.Package = SuccesDate.Package
+		AND ValidationLog.ValidatedOn = SuccesDate.MaxValidatedOn
+) AS Packages
+	ON Packages.Package = Package.Id
+INNER JOIN Batch
+	ON Package.Batch = Batch.Id --находим Member через Batch
 WHERE 
-	Member.Name = @Member
-	--Member.Name = N'АО ДОМ.РФ'
+	Batch.MemberGuid = @Member
 	AND Package.Processed = 1
-	AND Package.Incoming = 0 --смотрим только валидные и обработанные исходящие пакеты по участнику
-	AND Package.ReceivedOn &gt;=  case when @DataStart is not null
-									then DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
+	AND Package.Incoming = 0
+	AND Package.ReceivedOn &gt;=  case when @DateStart is not null
+									then DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
 									else Package.ReceivedOn
 									end
-	AND Package.ReceivedOn &lt;= case when @DataEnd is not null
-									then DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '0', '0', '0', '0') --начало периода отчета
+	AND Package.ReceivedOn &lt;= case when @DateEnd is not null
+									then DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0') --начало периода отчета
 									else Package.ReceivedOn
 									end
+ORDER BY PackageId
+
+									
 </CommandText>
       </Query>
       <Fields>
-        <Field Name="Id">
-          <DataField>Id</DataField>
-          <rd:TypeName>System.Int32</rd:TypeName>
+        <Field Name="PackageId">
+          <DataField>PackageId</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="LogId">
+          <DataField>LogId</DataField>
+          <rd:TypeName>System.Int64</rd:TypeName>
         </Field>
       </Fields>
     </DataSet>
@@ -225,8 +222,7 @@ WHERE
             </Paragraphs>
             <rd:WatermarkTextbox>Title</rd:WatermarkTextbox>
             <rd:DefaultName>ReportTitle</rd:DefaultName>
-            <Top>2.9195mm</Top>
-            <Left>0.11631cm</Left>
+            <Top>0mm</Top>
             <Height>10.16mm</Height>
             <Width>175.67083mm</Width>
             <Style>
@@ -273,7 +269,7 @@ WHERE
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontWeight>Bold</FontWeight>
-                                    <Color>DimGray</Color>
+                                    <Color>#393939</Color>
                                   </Style>
                                 </TextRun>
                               </TextRuns>
@@ -317,7 +313,7 @@ WHERE
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontWeight>Bold</FontWeight>
-                                    <Color>DimGray</Color>
+                                    <Color>#393939</Color>
                                   </Style>
                                 </TextRun>
                               </TextRuns>
@@ -365,7 +361,7 @@ WHERE
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontWeight>Bold</FontWeight>
                                     <Format>0;(0)</Format>
-                                    <Color>DimGray</Color>
+                                    <Color>#393939</Color>
                                   </Style>
                                 </TextRun>
                               </TextRuns>
@@ -408,7 +404,9 @@ WHERE
                               <TextRuns>
                                 <TextRun>
                                   <Value />
-                                  <Style />
+                                  <Style>
+                                    <Color>#393939</Color>
+                                  </Style>
                                 </TextRun>
                               </TextRuns>
                               <Style />
@@ -455,7 +453,7 @@ WHERE
                                   <Value>=Fields!CriterionName.Value</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
-                                    <Color>DimGray</Color>
+                                    <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
                               </TextRuns>
@@ -493,7 +491,7 @@ WHERE
                                 <TextRun>
                                   <Value>=if(IsNothing(Fields!Value.Value)=FALSE, Fields!Value.Value, "-")</Value>
                                   <Style>
-                                    <Color>DimGray</Color>
+                                    <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
                               </TextRuns>
@@ -534,7 +532,7 @@ WHERE
                                 <TextRun>
                                   <Value>=Fields!MaxCriterionValue.Value</Value>
                                   <Style>
-                                    <Color>DimGray</Color>
+                                    <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
                               </TextRuns>
@@ -575,7 +573,7 @@ WHERE
                                 <TextRun>
                                   <Value>=if(IsNothing(Fields!Value.Value)=FALSE, Fields!Description.Value, "Критерий не был оценен")</Value>
                                   <Style>
-                                    <Color>DimGray</Color>
+                                    <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
                               </TextRuns>
@@ -624,7 +622,7 @@ WHERE
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -677,7 +675,7 @@ WHERE
                                       <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -735,7 +733,7 @@ WHERE
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -787,7 +785,7 @@ WHERE
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -839,7 +837,7 @@ WHERE
                                           <FontStyle>Italic</FontStyle>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontWeight>Bold</FontWeight>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -895,7 +893,7 @@ WHERE
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -947,7 +945,7 @@ WHERE
                                           <FontStyle>Italic</FontStyle>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontWeight>Bold</FontWeight>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -1005,7 +1003,7 @@ WHERE
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1021,7 +1019,7 @@ WHERE
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1070,7 +1068,9 @@ WHERE
                                 <TextRuns>
                                   <TextRun>
                                     <Value />
-                                    <Style />
+                                    <Style>
+                                      <Color>DimGray</Color>
+                                    </Style>
                                   </TextRun>
                                 </TextRuns>
                                 <Style />
@@ -1158,8 +1158,8 @@ WHERE
               </TablixMembers>
             </TablixRowHierarchy>
             <DataSetName>DataSet1</DataSetName>
-            <Top>38.6454mm</Top>
-            <Left>1.1631mm</Left>
+            <Top>30.62944mm</Top>
+            <Left>0mm</Left>
             <Height>30.47625mm</Height>
             <Width>175.67083mm</Width>
             <ZIndex>1</ZIndex>
@@ -1176,7 +1176,7 @@ WHERE
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DataEnd.Value)), "dd MMM yyyy")</Value>
+                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)), "dd MMMM yyyy")</Value>
                     <Style>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
@@ -1188,13 +1188,13 @@ WHERE
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>28.62374mm</Top>
-            <Left>64.96864mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>71.70418mm</Left>
             <Height>6mm</Height>
-            <Width>40.56322mm</Width>
+            <Width>32.66458mm</Width>
             <ZIndex>2</ZIndex>
             <Visibility>
-              <Hidden>=IsNothing(Parameters!DataEnd.Value)</Hidden>
+              <Hidden>=IsNothing(Parameters!DateEnd.Value)</Hidden>
             </Visibility>
             <Style>
               <Border>
@@ -1218,18 +1218,18 @@ WHERE
                   </TextRun>
                 </TextRuns>
                 <Style>
-                  <TextAlign>Left</TextAlign>
+                  <TextAlign>Right</TextAlign>
                 </Style>
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>28.62374mm</Top>
-            <Left>31.19018mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>30.02708mm</Left>
             <Height>6mm</Height>
             <Width>4.15521mm</Width>
             <ZIndex>3</ZIndex>
             <Visibility>
-              <Hidden>=IsNothing(Parameters!DataEnd.Value)</Hidden>
+              <Hidden>=IsNothing(Parameters!DateStart.Value)</Hidden>
             </Visibility>
             <Style>
               <Border>
@@ -1248,7 +1248,7 @@ WHERE
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(Parameters!DataStart.Value, "dd MMM yyyy")</Value>
+                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
                     <Style>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
@@ -1260,13 +1260,13 @@ WHERE
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>DataStart</rd:DefaultName>
-            <Top>28.62374mm</Top>
-            <Left>35.34539mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>34.18229mm</Left>
             <Height>6mm</Height>
-            <Width>23.66569mm</Width>
+            <Width>31.56433mm</Width>
             <ZIndex>4</ZIndex>
             <Visibility>
-              <Hidden>=IsNothing(Parameters!DataStart.Value)</Hidden>
+              <Hidden>=IsNothing(Parameters!DateStart.Value)</Hidden>
             </Visibility>
             <Style>
               <Border>
@@ -1297,13 +1297,13 @@ WHERE
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>28.62374mm</Top>
-            <Left>1.1631mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>0mm</Left>
             <Height>6mm</Height>
             <Width>30.02708mm</Width>
             <ZIndex>5</ZIndex>
             <Visibility>
-              <Hidden>=IsNothing(Parameters!DataStart.Value)</Hidden>
+              <Hidden>=(IsNothing(Parameters!DateEnd.Value)) AND (IsNothing(Parameters!DateStart.Value))</Hidden>
             </Visibility>
             <Style>
               <Border>
@@ -1326,15 +1326,20 @@ WHERE
                     <Style />
                   </TextRun>
                 </TextRuns>
-                <Style />
+                <Style>
+                  <TextAlign>Right</TextAlign>
+                </Style>
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox59</rd:DefaultName>
-            <Top>28.62374mm</Top>
-            <Left>59.01108mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>65.74662mm</Left>
             <Height>6mm</Height>
             <Width>5.95756mm</Width>
             <ZIndex>6</ZIndex>
+            <Visibility>
+              <Hidden>=IsNothing(Parameters!DateEnd.Value)</Hidden>
+            </Visibility>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -1352,7 +1357,7 @@ WHERE
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Parameters!Member.Value</Value>
+                    <Value>=Lookup(Parameters!Member.Value, Fields!Guid.Value, Fields!Name.Value, "GetMember")</Value>
                     <Style />
                   </TextRun>
                 </TextRuns>
@@ -1362,8 +1367,8 @@ WHERE
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>16.62374mm</Top>
-            <Left>31.19018mm</Left>
+            <Top>17.92389mm</Top>
+            <Left>30.02708mm</Left>
             <Height>6mm</Height>
             <Width>74.34168mm</Width>
             <ZIndex>7</ZIndex>
@@ -1396,8 +1401,8 @@ WHERE
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>16.62374mm</Top>
-            <Left>1.1631mm</Left>
+            <Top>17.92389mm</Top>
+            <Left>0mm</Left>
             <Height>6mm</Height>
             <Width>30.02708mm</Width>
             <ZIndex>8</ZIndex>
@@ -1418,7 +1423,7 @@ WHERE
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Parameters!Package.Value</Value>
+                    <Value>=Lookup(Parameters!LogId.Value, Fields!LogId.Value, Fields!PackageId.Value, "GetPackages")</Value>
                     <Style>
                       <Format>0;(0)</Format>
                     </Style>
@@ -1430,8 +1435,8 @@ WHERE
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>22.62374mm</Top>
-            <Left>31.19018mm</Left>
+            <Top>23.92389mm</Top>
+            <Left>30.02708mm</Left>
             <Height>6mm</Height>
             <Width>74.34168mm</Width>
             <ZIndex>9</ZIndex>
@@ -1452,7 +1457,7 @@ WHERE
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>Пакет №:</Value>
+                    <Value>Пакет:</Value>
                     <Style>
                       <FontWeight>Bold</FontWeight>
                     </Style>
@@ -1464,8 +1469,8 @@ WHERE
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>22.62374mm</Top>
-            <Left>1.1631mm</Left>
+            <Top>23.92389mm</Top>
+            <Left>0mm</Left>
             <Height>6mm</Height>
             <Width>30.02708mm</Width>
             <ZIndex>10</ZIndex>
@@ -1480,14 +1485,14 @@ WHERE
             </Style>
           </Textbox>
         </ReportItems>
-        <Height>69.12165mm</Height>
+        <Height>61.10569mm</Height>
         <Style>
           <Border>
             <Style>None</Style>
           </Border>
         </Style>
       </Body>
-      <Width>176.83395mm</Width>
+      <Width>175.67083mm</Width>
       <Page>
         <PageFooter>
           <Height>8.11389mm</Height>
@@ -1512,13 +1517,14 @@ WHERE
               </Paragraphs>
               <rd:DefaultName>ExecutionTime</rd:DefaultName>
               <Top>1.76389mm</Top>
-              <Left>140.76242mm</Left>
+              <Left>139.5993mm</Left>
               <Height>6.35mm</Height>
               <Width>36.07153mm</Width>
               <Style>
                 <Border>
                   <Style>None</Style>
                 </Border>
+                <PaddingLeft>2pt</PaddingLeft>
                 <PaddingRight>2pt</PaddingRight>
                 <PaddingTop>2pt</PaddingTop>
                 <PaddingBottom>2pt</PaddingBottom>
@@ -1542,7 +1548,7 @@ WHERE
               </Paragraphs>
               <rd:DefaultName>ExecutionTime</rd:DefaultName>
               <Top>1.76389mm</Top>
-              <Left>110.33534mm</Left>
+              <Left>109.17222mm</Left>
               <Height>6.35mm</Height>
               <Width>30.42708mm</Width>
               <ZIndex>1</ZIndex>
@@ -1576,17 +1582,7 @@ WHERE
     </ReportSection>
   </ReportSections>
   <ReportParameters>
-    <ReportParameter Name="Member">
-      <DataType>String</DataType>
-      <Prompt>Участник МЭДО</Prompt>
-      <ValidValues>
-        <DataSetReference>
-          <DataSetName>GetMember</DataSetName>
-          <ValueField>Name</ValueField>
-        </DataSetReference>
-      </ValidValues>
-    </ReportParameter>
-    <ReportParameter Name="DataStart">
+    <ReportParameter Name="DateStart">
       <DataType>DateTime</DataType>
       <Nullable>true</Nullable>
       <DefaultValue>
@@ -1596,7 +1592,7 @@ WHERE
       </DefaultValue>
       <Prompt>Дата начала</Prompt>
     </ReportParameter>
-    <ReportParameter Name="DataEnd">
+    <ReportParameter Name="DateEnd">
       <DataType>DateTime</DataType>
       <Nullable>true</Nullable>
       <DefaultValue>
@@ -1606,13 +1602,25 @@ WHERE
       </DefaultValue>
       <Prompt>Дата окончания</Prompt>
     </ReportParameter>
-    <ReportParameter Name="Package">
+    <ReportParameter Name="Member">
+      <DataType>String</DataType>
+      <Prompt>Участник МЭДО</Prompt>
+      <ValidValues>
+        <DataSetReference>
+          <DataSetName>GetMember</DataSetName>
+          <ValueField>Guid</ValueField>
+          <LabelField>Name</LabelField>
+        </DataSetReference>
+      </ValidValues>
+    </ReportParameter>
+    <ReportParameter Name="LogId">
       <DataType>Integer</DataType>
       <Prompt>Пакет</Prompt>
       <ValidValues>
         <DataSetReference>
           <DataSetName>GetPackages</DataSetName>
-          <ValueField>Id</ValueField>
+          <ValueField>LogId</ValueField>
+          <LabelField>PackageId</LabelField>
         </DataSetReference>
       </ValidValues>
     </ReportParameter>

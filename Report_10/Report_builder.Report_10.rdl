@@ -17,168 +17,172 @@
       <Query>
         <DataSourceName>DataSource1</DataSourceName>
         <QueryParameters>
-          <QueryParameter Name="@DataStart">
-            <Value>=Parameters!DataStart.Value</Value>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
           </QueryParameter>
-          <QueryParameter Name="@DataEnd">
-            <Value>=Parameters!DataEnd.Value</Value>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
           </QueryParameter>
         </QueryParameters>
-        <CommandText>--DECLARE @DataStart DateTime2
---DECLARE @DataEnd DateTime2
---SET @DataStart = '2021-03-01'
---SET @DataEnd = '2021-04-01'
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-06-01'
+-------------------------------------------------------------------
 
-if object_id('tempdb..#tmp') is not null
+IF object_id('tempdb..#tmp') is not null
 	DROP TABLE #tmp
-if object_id('tempdb..#tmp2') is not null
+IF object_id('tempdb..#tmp2') is not null
 	DROP TABLE #tmp2
 
-CREATE TABLE #tmp (Rank INT, SenderGuid nvarchar(255), RecipientGuid nvarchar(255), CountNewVersionED INT, CountActiveCommunications INT, ALLCountNewVersionED INT)
+CREATE TABLE #tmp ( --оценка переписок с рангом
+	Rank INT
+	,SenderGuid char(36)
+	,SenderName nvarchar(255)
+	,RecipientGuid char(36)
+	,RecipientName nvarchar(255)
+	,CountNewVersionED INT
+	,CountActiveCommunications INT
+	,ALLCountNewVersionED INT
+)
 
 INSERT INTO #tmp  
-SELECT 	--оценка переписок с рангом
-	DENSE_RANK() OVER (ORDER BY CountActiveCommunications DESC, ALLCountNewVersionED DESC, Member.Name ASC) AS Rank
-	,SenderGuid
-	,RecipientGuid
-	,CountNewVersionED
-	,CountActiveCommunications
-	,ALLCountNewVersionED
-FROM (
-	SELECT	--оценка переписок
-		CommunicationsControl.SenderGuid
-		,CommunicationsControl.RecipientGuid
-		,IsNull(CommunicationsControl.CountNewVersionED, -1) AS CountNewVersionED --где переписки нет, там -1
-		,SUM(CommunicationsControl.CountNewVersionED) OVER (PARTITION BY CommunicationsControl.SenderGuid) AS ALLCountNewVersionED --сумма всех ЭД в формате 2.7.1 по участнику 
-		,SUM(IIF(CommunicationsControl.CountNewVersionED &gt; 2, 1, 0)) OVER (PARTITION BY CommunicationsControl.SenderGuid) AS CountActiveCommunications --если в переписке есть более 2 ЭД 2.7.1, то +1 к активной переписке
-	FROM ( --CommunicationsControl = коммуникаций Sender и Recipient и кол-во версий 2.7.1 ЭД
-		SELECT
-			AllCommunications.SenderGuid
-			,AllCommunications.RecipientGuid
-			,NewVersionControl.CountNewVersionED
-		FROM ( --AllCommunications = Все возможные варианты коммуникаций Sender и Recipient
-			SELECT 
-				Member1.Name		AS Sender
-				,Member1.Guid	AS SenderGuid
-				,Member2.Name	AS Recipient 
-				,Member2.Guid	AS RecipientGuid 
-			FROM 
-				Member AS Member1
-			CROSS JOIN (
+	SELECT 	--оценка переписок с рангом
+		DENSE_RANK() OVER (ORDER BY CountActiveCommunications DESC, ALLCountNewVersionED DESC, Member.Name ASC) AS Rank
+		,SenderGuid
+		,SenderName
+		,RecipientGuid
+		,RecipientName
+		,CountNewVersionED
+		,CountActiveCommunications
+		,ALLCountNewVersionED
+	FROM (
+		SELECT	--ComunicationsScore = оценка переписок
+			CommunicationsControl.SenderGuid
+			,CommunicationsControl.SenderName
+			,CommunicationsControl.RecipientGuid
+			,CommunicationsControl.RecipientName
+			,ISNULL(CommunicationsControl.CountNewVersionED, -1) AS CountNewVersionED --где переписки нет, там -1
+			,SUM(CommunicationsControl.CountNewVersionED) OVER (PARTITION BY CommunicationsControl.SenderGuid) AS ALLCountNewVersionED --сумма всех ЭД в формате 2.7.1 по участнику 
+			,SUM(IIF(CommunicationsControl.CountNewVersionED &gt; 2, 1, 0)) OVER (PARTITION BY CommunicationsControl.SenderGuid) AS CountActiveCommunications --если в переписке есть более 2 ЭД 2.7.1, то +1 к активной переписке
+		FROM ( --CommunicationsControl = коммуникации Sender и Recipient и кол-во версий 2.7.1 ЭД
+			SELECT
+				AllCommunications.SenderGuid
+				,AllCommunications.SenderName
+				,AllCommunications.RecipientGuid
+				,AllCommunications.RecipientName
+				,NewVersionControl.CountNewVersionED
+			FROM ( --AllCommunications = Все возможные варианты коммуникаций Sender и Recipient
 				SELECT 
-					Member.Name
-					,Member.Guid
-					,Member.Active
+					Member1.Guid	AS SenderGuid
+					,Member1.Name	AS SenderName
+					,Member2.Guid	AS RecipientGuid 
+					,Member2.Name	AS RecipientName
 				FROM 
-					Member
-			) AS Member2
-			WHERE 
-				Member1.Active = 1
-				AND Member2.Active = 1
-		) AS AllCommunications
-		LEFT JOIN (
-			SELECT -- NewVersionControl = коммуникации MemberY и MemberX в период отчета по ЭД с указанием кол-ва версий 2.7.1 ЭД
-				VersionControl.MemberY
-				,VersionControl.MemberX
-				,SUM(IIF(VersionControl.VersionED = '2.7.1', 1, 0)) AS CountNewVersionED
-			FROM (
-				SELECT  -- VersionControl Все коммуникации MemberY и MemberX в период отчета по ЭД с указанием версии ЭД
-					ConfirmationControl.SenderGuid AS MemberY		--отправитель
-					,ConfirmationControl.RecipientGuid AS MemberX	--получатель
-					,IIF(ConfirmationControl.MessageType = N'Транспортный контейнер', ValidationLog.ContainerXmlVersion, ValidationLog.PackageXmlVersion) AS VersionED
-				FROM	
-					ConfirmationControl	
-				INNER JOIN ValidationLog
-					ON ValidationLog.Id = ConfirmationControl.ValidatingLog
+					Member AS Member1
+				CROSS JOIN (
+					SELECT 
+						Member.Name
+						,Member.Guid
+					FROM 
+						Member
+					WHERE
+						Member.Active = 1
+				) AS Member2
 				WHERE 
-					--ConfirmationControl.PackageDelivaredOn &gt;= '2021-02-28' --конец периода отчета
-					--AND ConfirmationControl.PackageDelivaredOn &lt; '2021-03-29' --конец периода отчета		
-					ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-					AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
-					AND(ConfirmationControl.MessageType = N'Транспортный контейнер' OR ConfirmationControl.MessageType = N'Документ')
-			) AS VersionControl
-			GROUP BY
-				VersionControl.MemberY
-				,VersionControl.MemberX
-		) AS NewVersionControl
-			ON AllCommunications.SenderGuid = NewVersionControl.MemberY
-			AND AllCommunications.RecipientGuid = NewVersionControl.MemberX
-			) AS CommunicationsControl	
-) AS A
-INNER JOIN Member
-	ON Member.Guid = A.SenderGuid
+					Member1.Active = 1
+			) AS AllCommunications
+			LEFT JOIN (
+				SELECT -- NewVersionControl = коммуникации MemberY и MemberX в период отчета по ЭД с указанием кол-ва версий 2.7.1 ЭД
+					VersionControl.MemberY
+					,VersionControl.MemberX
+					,SUM(IIF(VersionControl.VersionED = '2.7.1', 1, 0)) AS CountNewVersionED
+				FROM (
+					SELECT  -- VersionControl Все коммуникации MemberY и MemberX в период отчета по ЭД с указанием версии ЭД
+						ConfirmationControl.SenderGuid AS MemberY		--отправитель
+						,ConfirmationControl.RecipientGuid AS MemberX	--получатель
+						,IIF(ConfirmationControl.MessageType = N'Транспортный контейнер', ValidationLog.ContainerXmlVersion, ValidationLog.PackageXmlVersion) AS VersionED
+					FROM	
+						ConfirmationControl	
+					INNER JOIN ValidationLog
+						ON ValidationLog.Id = ConfirmationControl.ValidatingLog
+					WHERE 	
+						ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+						AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
+						AND(ConfirmationControl.MessageType = N'Транспортный контейнер' OR ConfirmationControl.MessageType = N'Документ')
+				) AS VersionControl
+				GROUP BY
+					VersionControl.MemberY
+					,VersionControl.MemberX
+			) AS NewVersionControl
+				ON AllCommunications.SenderGuid = NewVersionControl.MemberY
+				AND AllCommunications.RecipientGuid = NewVersionControl.MemberX
+		) AS CommunicationsControl	
+	) AS ComunicationsScore
+	INNER JOIN Member
+		ON Member.Guid = ComunicationsScore.SenderGuid
 
-CREATE TABLE #tmp2 (Rank INT, SenderGuid nvarchar(255)) --чтобы сортировать столбец так же, как и строку
+CREATE TABLE #tmp2 ( --чтобы сортировать столбец так же, как и строку
+	Rank INT
+	,SenderGuid nvarchar(255)
+) 
+
 INSERT INTO #tmp2  
 	SELECT 
-		distinct
+		DISTINCT
 		#tmp.Rank
 		,#tmp.SenderGuid
 	FROM #tmp
 
-SELECT
-	Report10.RankA
-	,MemberSender.Name AS Sender
-	,Report10.SenderGuid
-	,Report10.RankB 
-	,MemberRecipient.Name AS Recipient
-	,Report10.RecipientGuid
-	,Report10.CountNewVersionED
-	,Report10.CountActiveCommunications
-	,Report10.ALLCountNewVersionED	
-FROM (
-	SELECT 
-		A.Rank AS RankA
-		,A.SenderGuid
-		,B.Rank AS RankB
-		,A.RecipientGuid
-		,A.CountNewVersionED
-		,A.CountActiveCommunications
-		,A.ALLCountNewVersionED	
-	FROM #tmp AS A
-	INNER JOIN #tmp2 AS B
-		ON A.RecipientGuid = B.SenderGuid
-) AS Report10
-INNER JOIN Member AS MemberSender
-	ON MemberSender.Guid = Report10.SenderGuid COLLATE SQL_Latin1_General_CP1_CI_AS
-INNER JOIN Member AS MemberRecipient
-	ON MemberRecipient.Guid = Report10.RecipientGuid COLLATE SQL_Latin1_General_CP1_CI_AS
 
-</CommandText>
+SELECT 
+	A.Rank AS RankA
+	,A.SenderGuid
+	,A.SenderName
+	,B.Rank AS RankB
+	,A.RecipientGuid
+	,A.RecipientName
+	,A.CountNewVersionED
+	,A.CountActiveCommunications
+	,A.ALLCountNewVersionED	
+FROM #tmp AS A
+INNER JOIN #tmp2 AS B
+	ON A.RecipientGuid = B.SenderGuid</CommandText>
         <rd:UseGenericDesigner>true</rd:UseGenericDesigner>
       </Query>
       <Fields>
-        <Field Name="Sender">
-          <DataField>Sender</DataField>
-          <rd:TypeName>System.String</rd:TypeName>
-        </Field>
         <Field Name="RankA">
           <DataField>RankA</DataField>
           <rd:TypeName>System.Int32</rd:TypeName>
         </Field>
-        <Field Name="Recipient">
-          <DataField>Recipient</DataField>
-          <rd:TypeName>System.String</rd:TypeName>
-        </Field>
         <Field Name="SenderGuid">
           <DataField>SenderGuid</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="SenderName">
+          <DataField>SenderName</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="RankB">
+          <DataField>RankB</DataField>
+          <rd:TypeName>System.Int32</rd:TypeName>
+        </Field>
+        <Field Name="RecipientGuid">
+          <DataField>RecipientGuid</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="RecipientName">
+          <DataField>RecipientName</DataField>
           <rd:TypeName>System.String</rd:TypeName>
         </Field>
         <Field Name="CountNewVersionED">
           <DataField>CountNewVersionED</DataField>
           <rd:TypeName>System.Int32</rd:TypeName>
         </Field>
-        <Field Name="RankB">
-          <DataField>RankB</DataField>
-          <rd:TypeName>System.Int32</rd:TypeName>
-        </Field>
         <Field Name="CountActiveCommunications">
           <DataField>CountActiveCommunications</DataField>
           <rd:TypeName>System.Int32</rd:TypeName>
-        </Field>
-        <Field Name="RecipientGuid">
-          <DataField>RecipientGuid</DataField>
-          <rd:TypeName>System.String</rd:TypeName>
         </Field>
         <Field Name="ALLCountNewVersionED">
           <DataField>ALLCountNewVersionED</DataField>
@@ -186,18 +190,25 @@ INNER JOIN Member AS MemberRecipient
         </Field>
       </Fields>
     </DataSet>
-    <DataSet Name="DataSet2">
+    <DataSet Name="GetMaxCountED">
       <Query>
         <DataSourceName>DataSource1</DataSourceName>
         <QueryParameters>
-          <QueryParameter Name="@DataStart">
-            <Value>=Parameters!DataStart.Value</Value>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
           </QueryParameter>
-          <QueryParameter Name="@DataEnd">
-            <Value>=Parameters!DataEnd.Value</Value>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
           </QueryParameter>
         </QueryParameters>
-        <CommandText>SELECT
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-06-01'
+-------------------------------------------------------------------
+
+SELECT
 	MAX(SumVersionControl.CountNewVersionED) AS MaxCountED
 FROM (
 	SELECT -- SumVersionControl = Кол-во переданных ЭД в формате 2.7.1 по каждому участнику
@@ -206,22 +217,18 @@ FROM (
 	FROM (
 		SELECT  --VersionControl = Переданные ЭД в формате 2.7.1
 			ConfirmationControl.SenderGuid AS MemberY		--отправитель
-			,ConfirmationControl.RecipientGuid AS MemberX
 			,IIF(ConfirmationControl.MessageType = N'Транспортный контейнер', ValidationLog.ContainerXmlVersion, ValidationLog.PackageXmlVersion) AS VersionED
 		FROM	
 			ConfirmationControl	
 		INNER JOIN ValidationLog
 			ON ValidationLog.Id = ConfirmationControl.ValidatingLog
-		WHERE 
-			--ConfirmationControl.PackageDelivaredOn &gt;= '2021-02-28' --конец периода отчета
-			--AND ConfirmationControl.PackageDelivaredOn &lt; '2021-03-29' --конец периода отчета		
-			ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-			AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
+		WHERE 	
+			ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
 			AND(ConfirmationControl.MessageType = N'Транспортный контейнер' OR ConfirmationControl.MessageType = N'Документ')
 	) AS VersionControl
 	GROUP BY
 		VersionControl.MemberY
-		,VersionControl.MemberX
 ) AS SumVersionControl</CommandText>
       </Query>
       <Fields>
@@ -244,7 +251,7 @@ FROM (
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>Кросс-таблица по использованию формата 2.7.1 при обмене электронными документами</Value>
+                    <Value>Кросс-таблица по использованию формата 2.7.1 при обмене ЭД</Value>
                     <Style>
                       <FontFamily>Yu Gothic UI Light</FontFamily>
                       <FontSize>20pt</FontSize>
@@ -259,9 +266,8 @@ FROM (
             <rd:WatermarkTextbox>Title</rd:WatermarkTextbox>
             <rd:DefaultName>ReportTitle</rd:DefaultName>
             <Top>0mm</Top>
-            <Left>0cm</Left>
             <Height>9.99718mm</Height>
-            <Width>278.25789mm</Width>
+            <Width>222.29992mm</Width>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -281,9 +287,8 @@ FROM (
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DataEnd.Value)), "dd MMM yyyy")</Value>
+                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)), "dd MMMM yyyy")</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
                   </TextRun>
@@ -295,13 +300,10 @@ FROM (
             </Paragraphs>
             <rd:DefaultName>DataEnd</rd:DefaultName>
             <Top>11.76107mm</Top>
-            <Left>59.60123mm</Left>
+            <Left>71.18877mm</Left>
             <Height>6mm</Height>
-            <Width>47.78986mm</Width>
+            <Width>31.56433mm</Width>
             <ZIndex>1</ZIndex>
-            <Visibility>
-              <Hidden>=IsNothing(Parameters!DataEnd.Value)</Hidden>
-            </Visibility>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -321,25 +323,20 @@ FROM (
                 <TextRuns>
                   <TextRun>
                     <Value>по</Value>
-                    <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
-                    </Style>
+                    <Style />
                   </TextRun>
                 </TextRuns>
                 <Style>
-                  <TextAlign>Left</TextAlign>
+                  <TextAlign>Right</TextAlign>
                 </Style>
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
             <Top>11.76107mm</Top>
-            <Left>53.94104mm</Left>
+            <Left>64.47024mm</Left>
             <Height>6mm</Height>
-            <Width>5.66019mm</Width>
+            <Width>6.71852mm</Width>
             <ZIndex>2</ZIndex>
-            <Visibility>
-              <Hidden>=IsNothing(Parameters!DataEnd.Value)</Hidden>
-            </Visibility>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -358,9 +355,8 @@ FROM (
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(Parameters!DataStart.Value, "dd MMM yyyy")</Value>
+                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
                   </TextRun>
@@ -372,13 +368,10 @@ FROM (
             </Paragraphs>
             <rd:DefaultName>DataStart</rd:DefaultName>
             <Top>11.76107mm</Top>
-            <Left>32.12609mm</Left>
+            <Left>32.90591mm</Left>
             <Height>6mm</Height>
-            <Width>21.81495mm</Width>
+            <Width>31.56433mm</Width>
             <ZIndex>3</ZIndex>
-            <Visibility>
-              <Hidden>=IsNothing(Parameters!DataStart.Value)</Hidden>
-            </Visibility>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -398,13 +391,11 @@ FROM (
                 <TextRuns>
                   <TextRun>
                     <Value>с</Value>
-                    <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
-                    </Style>
+                    <Style />
                   </TextRun>
                 </TextRuns>
                 <Style>
-                  <TextAlign>Left</TextAlign>
+                  <TextAlign>Right</TextAlign>
                 </Style>
               </Paragraph>
             </Paragraphs>
@@ -412,11 +403,8 @@ FROM (
             <Top>11.76107mm</Top>
             <Left>28.96874mm</Left>
             <Height>6mm</Height>
-            <Width>3.15735mm</Width>
+            <Width>3.93717mm</Width>
             <ZIndex>4</ZIndex>
-            <Visibility>
-              <Hidden>=IsNothing(Parameters!DataStart.Value)</Hidden>
-            </Visibility>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -437,7 +425,6 @@ FROM (
                   <TextRun>
                     <Value>Период отчета:</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <FontWeight>Bold</FontWeight>
                     </Style>
                   </TextRun>
@@ -482,7 +469,17 @@ FROM (
                                 </Style>
                               </TextRun>
                               <TextRun>
-                                <Value> Примечание по заполнению кросс-таблицы:
+                                <Value xml:space="preserve"> </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <TextDecoration>None</TextDecoration>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>Примечание по заполнению кросс-таблицы:
 </Value>
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
@@ -505,17 +502,152 @@ FROM (
                               </TextRun>
                             </TextRuns>
                             <Style>
-                              <TextAlign>Left</TextAlign>
+                              <TextAlign>Center</TextAlign>
                             </Style>
                           </Paragraph>
                           <Paragraph>
                             <TextRuns>
                               <TextRun>
+                                <Value xml:space="preserve">
+    </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>Зелёным</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>LawnGreen</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value xml:space="preserve"> </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>отмечены отправители, </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>готовые к работе в 2.7.1</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value> (направили более 2-х писем 3 или более адресатам)
+    </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>Жёлтым</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>#eded00</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value xml:space="preserve"> </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>отмечены отправители, </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>частично готовые к 2.7.1</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value> (направили более 2-х писем 1 или 2 адресатам)
+    </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>Красным</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>#ff0202</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value xml:space="preserve"> </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>отмечены отправители, </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>не готовые к 2.7.1
+</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
                                 <Value>
-    Зелёным отмечены отправители, готовые к работе в 2.7.1 (направили более 2-х писем 3 или более адресатам)
-    Жёлтым отмечены отправители, частично готовые к 2.7.1 (направили более 2-х писем 1 или 2 адресатам)
-    Красным отмечены отправители, не готовые к 2.7.1
-
     В ячейках -- количество электронных документов, направленных отправителем  получателю в 2.7.1
     Зелёным цветом ячеек отмечена активная переписка (если направлено более 2-х документов)</Value>
                                 <Style>
@@ -527,22 +659,26 @@ FROM (
                               </TextRun>
                             </TextRuns>
                             <Style>
-                              <TextAlign>Left</TextAlign>
+                              <TextAlign>Center</TextAlign>
                             </Style>
                           </Paragraph>
                         </Paragraphs>
                         <rd:DefaultName>Textbox20</rd:DefaultName>
                         <Style>
                           <Border>
-                            <Color>#7292cc</Color>
+                            <Color>LightGrey</Color>
                             <Style>None</Style>
+                            <Width>1.25pt</Width>
                           </Border>
                           <BottomBorder>
                             <Color>#4e648a</Color>
                             <Style>Solid</Style>
                           </BottomBorder>
+                          <RightBorder>
+                            <Style>Solid</Style>
+                          </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
-                          <VerticalAlign>Bottom</VerticalAlign>
+                          <VerticalAlign>Middle</VerticalAlign>
                           <PaddingLeft>2pt</PaddingLeft>
                           <PaddingRight>2pt</PaddingRight>
                           <PaddingTop>2pt</PaddingTop>
@@ -563,7 +699,7 @@ FROM (
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>9pt</FontSize>
-                                  <FontWeight>Normal</FontWeight>
+                                  <FontWeight>Bold</FontWeight>
                                   <Color>Gray</Color>
                                 </Style>
                               </TextRun>
@@ -576,13 +712,17 @@ FROM (
                         <rd:DefaultName>Textbox1</rd:DefaultName>
                         <Style>
                           <Border>
-                            <Color>White</Color>
+                            <Color>LightGrey</Color>
                             <Style>None</Style>
+                            <Width>1.25pt</Width>
                           </Border>
                           <BottomBorder>
-                            <Color>#4e648a</Color>
                             <Style>Solid</Style>
                           </BottomBorder>
+                          <RightBorder>
+                            <Style>Solid</Style>
+                            <Width>1pt</Width>
+                          </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
                           <VerticalAlign>Middle</VerticalAlign>
                           <PaddingLeft>2pt</PaddingLeft>
@@ -606,7 +746,7 @@ FROM (
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>9pt</FontSize>
-                                  <FontWeight>Normal</FontWeight>
+                                  <FontWeight>Bold</FontWeight>
                                   <Color>Gray</Color>
                                 </Style>
                               </TextRun>
@@ -619,22 +759,14 @@ FROM (
                         <rd:DefaultName>Textbox2</rd:DefaultName>
                         <Style>
                           <Border>
-                            <Color>White</Color>
+                            <Color>LightGrey</Color>
                             <Style>None</Style>
-                            <Width>0.5pt</Width>
+                            <Width>1.25pt</Width>
                           </Border>
                           <BottomBorder>
-                            <Color>#4e648a</Color>
                             <Style>Solid</Style>
-                            <Width>1pt</Width>
                           </BottomBorder>
-                          <LeftBorder>
-                            <Color>LightGrey</Color>
-                            <Style>Solid</Style>
-                            <Width>1pt</Width>
-                          </LeftBorder>
                           <RightBorder>
-                            <Color>LightGrey</Color>
                             <Style>Solid</Style>
                           </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
@@ -654,12 +786,12 @@ FROM (
             <TablixBody>
               <TablixColumns>
                 <TablixColumn>
-                  <Width>0.69072cm</Width>
+                  <Width>0.67cm</Width>
                 </TablixColumn>
               </TablixColumns>
               <TablixRows>
                 <TablixRow>
-                  <Height>0.64295cm</Height>
+                  <Height>0.67cm</Height>
                   <TablixCells>
                     <TablixCell>
                       <CellContents>
@@ -673,7 +805,8 @@ FROM (
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontSize>8pt</FontSize>
-                                    <Color>=SWITCH(Fields!Sender.Value = Fields!Recipient.Value AND Fields!CountNewVersionED.Value = 0, "#a6a6a6",Fields!Sender.Value &lt;&gt; Fields!Recipient.Value AND Fields!CountNewVersionED.Value = 0, "White", Fields!CountNewVersionED.Value &gt;0 AND Fields!CountNewVersionED.Value &lt; 3,"Black", Fields!CountNewVersionED.Value &gt;= 3, "DarkGreen")</Color>
+                                    <Format>#,0</Format>
+                                    <Color>=SWITCH(Fields!SenderGuid.Value = Fields!RecipientGuid.Value AND Fields!CountNewVersionED.Value = 0, "#a6a6a6",Fields!SenderGuid.Value &lt;&gt; Fields!RecipientGuid.Value AND Fields!CountNewVersionED.Value = 0, "White", Fields!CountNewVersionED.Value &gt;0 AND Fields!CountNewVersionED.Value &lt; 3,"Black", Fields!CountNewVersionED.Value &gt;= 3, "DarkGreen")</Color>
                                   </Style>
                                 </TextRun>
                               </TextRuns>
@@ -686,16 +819,15 @@ FROM (
                           <Style>
                             <Border>
                               <Color>LightGrey</Color>
-                              <Style>Solid</Style>
+                              <Style>None</Style>
                             </Border>
-                            <TopBorder>
-                              <Width>1.25pt</Width>
-                            </TopBorder>
-                            <LeftBorder>
-                              <Style>None</Style>
-                            </LeftBorder>
+                            <BottomBorder>
+                              <Style>Dashed</Style>
+                              <Width>0.5pt</Width>
+                            </BottomBorder>
                             <RightBorder>
-                              <Style>None</Style>
+                              <Style>Dashed</Style>
+                              <Width>0.5pt</Width>
                             </RightBorder>
                             <BackgroundColor>=Switch( Fields!SenderGuid.Value = Fields!RecipientGuid.Value, "#a6a6a6", Fields!CountNewVersionED.Value  &gt; 2,"#"+Format(209-CInt(70*Fields!CountNewVersionED.Value/Variables!MaxCountED.Value), "X2")+""+Format(223-CInt(70*Fields!CountNewVersionED.Value/Variables!MaxCountED.Value), "X2")+""+Format(180-CInt(80*Fields!CountNewVersionED.Value/Variables!MaxCountED.Value), "X2"), Fields!SenderGuid.Value &lt;&gt; Fields!RecipientGuid.Value AND Fields!CountNewVersionED.Value  &lt;=2 , "White")</BackgroundColor>
                             <VerticalAlign>Middle</VerticalAlign>
@@ -730,7 +862,7 @@ FROM (
                   <TablixMembers>
                     <TablixMember>
                       <TablixHeader>
-                        <Size>7.02345cm</Size>
+                        <Size>7cm</Size>
                         <CellContents>
                           <Textbox Name="Textbox62">
                             <KeepTogether>true</KeepTogether>
@@ -738,7 +870,7 @@ FROM (
                               <Paragraph>
                                 <TextRuns>
                                   <TextRun>
-                                    <Value>=Fields!Recipient.Value</Value>
+                                    <Value>=Fields!RecipientName.Value</Value>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>8pt</FontSize>
@@ -753,21 +885,15 @@ FROM (
                             <Style>
                               <Border>
                                 <Color>LightGrey</Color>
-                                <Style>Solid</Style>
+                                <Style>None</Style>
                               </Border>
-                              <TopBorder>
-                                <Style>None</Style>
-                                <Width>1.25pt</Width>
-                              </TopBorder>
                               <BottomBorder>
-                                <Color>#4e648a</Color>
                                 <Style>Solid</Style>
+                                <Width>1.25pt</Width>
                               </BottomBorder>
-                              <LeftBorder>
-                                <Style>None</Style>
-                              </LeftBorder>
                               <RightBorder>
-                                <Style>None</Style>
+                                <Style>Solid</Style>
+                                <Width>0.5pt</Width>
                               </RightBorder>
                               <BackgroundColor>White</BackgroundColor>
                               <VerticalAlign>Middle</VerticalAlign>
@@ -799,7 +925,7 @@ FROM (
                     </SortExpression>
                   </SortExpressions>
                   <TablixHeader>
-                    <Size>6.49316cm</Size>
+                    <Size>7cm</Size>
                     <CellContents>
                       <Textbox Name="Textbox59">
                         <KeepTogether>true</KeepTogether>
@@ -807,7 +933,7 @@ FROM (
                           <Paragraph>
                             <TextRuns>
                               <TextRun>
-                                <Value>=Fields!Sender.Value</Value>
+                                <Value>=Fields!SenderName.Value</Value>
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>8pt</FontSize>
@@ -822,16 +948,15 @@ FROM (
                         <Style>
                           <Border>
                             <Color>LightGrey</Color>
-                            <Style>Solid</Style>
-                          </Border>
-                          <TopBorder>
-                            <Width>1.25pt</Width>
-                          </TopBorder>
-                          <LeftBorder>
                             <Style>None</Style>
-                          </LeftBorder>
+                          </Border>
+                          <BottomBorder>
+                            <Color>#4e648a</Color>
+                            <Style>Solid</Style>
+                            <Width>0.75pt</Width>
+                          </BottomBorder>
                           <RightBorder>
-                            <Width>0.5pt</Width>
+                            <Style>Solid</Style>
                           </RightBorder>
                           <BackgroundColor>=Switch(Fields!CountActiveCommunications.Value &gt; 2, "#d7e4bd", Fields!CountActiveCommunications.Value &gt; 0 AND Fields!CountActiveCommunications.Value &lt;= 2, "#ffff99", Fields!CountActiveCommunications.Value = 0,"#fcd5b5")</BackgroundColor>
                           <VerticalAlign>Middle</VerticalAlign>
@@ -846,7 +971,7 @@ FROM (
                   <TablixMembers>
                     <TablixMember>
                       <TablixHeader>
-                        <Size>1.14048cm</Size>
+                        <Size>0.8cm</Size>
                         <CellContents>
                           <Textbox Name="Textbox3">
                             <KeepTogether>true</KeepTogether>
@@ -857,7 +982,8 @@ FROM (
                                     <Value>=Fields!CountActiveCommunications.Value</Value>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
-                                      <FontSize>8pt</FontSize>
+                                      <FontSize>9pt</FontSize>
+                                      <Format>#,0</Format>
                                       <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
@@ -871,13 +997,13 @@ FROM (
                             <Style>
                               <Border>
                                 <Color>LightGrey</Color>
-                                <Style>Solid</Style>
+                                <Style>None</Style>
                               </Border>
-                              <TopBorder>
-                                <Width>1.25pt</Width>
-                              </TopBorder>
+                              <BottomBorder>
+                                <Style>Solid</Style>
+                              </BottomBorder>
                               <RightBorder>
-                                <Width>0.5pt</Width>
+                                <Style>Solid</Style>
                               </RightBorder>
                               <BackgroundColor>White</BackgroundColor>
                               <VerticalAlign>Middle</VerticalAlign>
@@ -892,7 +1018,7 @@ FROM (
                       <TablixMembers>
                         <TablixMember>
                           <TablixHeader>
-                            <Size>0.93367cm</Size>
+                            <Size>0.8cm</Size>
                             <CellContents>
                               <Textbox Name="Textbox5">
                                 <KeepTogether>true</KeepTogether>
@@ -903,7 +1029,8 @@ FROM (
                                         <Value>=Fields!ALLCountNewVersionED.Value</Value>
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
-                                          <FontSize>8pt</FontSize>
+                                          <FontSize>9pt</FontSize>
+                                          <Format>#,0</Format>
                                           <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
@@ -917,16 +1044,14 @@ FROM (
                                 <Style>
                                   <Border>
                                     <Color>LightGrey</Color>
-                                    <Style>Solid</Style>
+                                    <Style>None</Style>
                                   </Border>
-                                  <TopBorder>
-                                    <Width>1.25pt</Width>
-                                  </TopBorder>
-                                  <LeftBorder>
-                                    <Width>1pt</Width>
-                                  </LeftBorder>
+                                  <BottomBorder>
+                                    <Style>Solid</Style>
+                                  </BottomBorder>
                                   <RightBorder>
-                                    <Width>0.5pt</Width>
+                                    <Style>Solid</Style>
+                                    <Width>1.25pt</Width>
                                   </RightBorder>
                                   <BackgroundColor>White</BackgroundColor>
                                   <VerticalAlign>Middle</VerticalAlign>
@@ -951,8 +1076,8 @@ FROM (
             <FixedRowHeaders>true</FixedRowHeaders>
             <DataSetName>DataSet1</DataSetName>
             <Top>1.84666cm</Top>
-            <Height>7.6664cm</Height>
-            <Width>9.25803cm</Width>
+            <Height>7.67cm</Height>
+            <Width>9.27cm</Width>
             <ZIndex>6</ZIndex>
             <Style>
               <Border>
@@ -961,14 +1086,14 @@ FROM (
             </Style>
           </Tablix>
         </ReportItems>
-        <Height>95.13066mm</Height>
+        <Height>95.1666mm</Height>
         <Style>
           <Border>
             <Style>None</Style>
           </Border>
         </Style>
       </Body>
-      <Width>278.25789mm</Width>
+      <Width>222.29992mm</Width>
       <Page>
         <PageFooter>
           <Height>7.05556mm</Height>
@@ -1003,6 +1128,7 @@ FROM (
                 <Border>
                   <Style>None</Style>
                 </Border>
+                <PaddingLeft>2pt</PaddingLeft>
                 <PaddingRight>2pt</PaddingRight>
                 <PaddingTop>2pt</PaddingTop>
                 <PaddingBottom>2pt</PaddingBottom>
@@ -1063,7 +1189,7 @@ FROM (
     </ReportSection>
   </ReportSections>
   <ReportParameters>
-    <ReportParameter Name="DataStart">
+    <ReportParameter Name="DateStart">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>
@@ -1072,7 +1198,7 @@ FROM (
       </DefaultValue>
       <Prompt>Дата начала</Prompt>
     </ReportParameter>
-    <ReportParameter Name="DataEnd">
+    <ReportParameter Name="DateEnd">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>
@@ -1084,7 +1210,7 @@ FROM (
   </ReportParameters>
   <Variables>
     <Variable Name="MaxCountED">
-      <Value>=MAX(Fields!MaxCountED.Value, "DataSet2")</Value>
+      <Value>=MAX(Fields!MaxCountED.Value, "GetMaxCountED")</Value>
     </Variable>
   </Variables>
   <rd:ReportUnitType>Cm</rd:ReportUnitType>

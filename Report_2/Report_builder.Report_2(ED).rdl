@@ -17,28 +17,29 @@
       <Query>
         <DataSourceName>MedonomFull</DataSourceName>
         <QueryParameters>
-          <QueryParameter Name="@DataStartCompare">
-            <Value>=Parameters!DataStartCompare.Value</Value>
+          <QueryParameter Name="@DateStartCompare">
+            <Value>=Parameters!DateStartCompare.Value</Value>
           </QueryParameter>
-          <QueryParameter Name="@DataEndCompare">
-            <Value>=Parameters!DataEndCompare.Value</Value>
+          <QueryParameter Name="@DateEndCompare">
+            <Value>=Parameters!DateEndCompare.Value</Value>
           </QueryParameter>
-          <QueryParameter Name="@DataStart">
-            <Value>=Parameters!DataStart.Value</Value>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
           </QueryParameter>
-          <QueryParameter Name="@DataEnd">
-            <Value>=Parameters!DataEnd.Value</Value>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
           </QueryParameter>
         </QueryParameters>
-        <CommandText>--DECLARE @DataStart DateTime2
---DECLARE @DataEnd DateTime2
---DECLARE @DataStartCompare DateTime2
---DECLARE @DataEndCompare DateTime2
-
---SET @DataStart = '2021-03-01'
---SET @DataEnd = '2021-04-01'
---SET @DataStartCompare = '2021-02-01'
---SET @DataEndCompare = '2021-03-01'
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--DECLARE @DateStartCompare DateTime2
+--DECLARE @DateEndCompare DateTime2
+--SET @DateStart = '2021-03-01'
+--SET @DateEnd = '2021-03-31'
+--SET @DateStartCompare = '2021-04-01'
+--SET @DateEndCompare = '2021-04-30'
+-------------------------------------------------------------------
 
 IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
@@ -46,13 +47,11 @@ IF OBJECT_ID('tempdb..#Tmp') is not null
 CREATE TABLE #Tmp (
 					PackageId INT
 					,LogId INT 
-					,MemberGuid nvarchar(255)
-					,PackageXml nvarchar(255)
-					,PackageXmlVersion nvarchar(255)
+					,MemberGuid char(36)
 					,ContainerXml nvarchar(255)
 					,ContainerXmlVersion nvarchar(255)
 					,Type INT
-					,Success BIT
+					--,Success BIT
 					,ReceivedOn DateTime2(7))
 INSERT INTO #Tmp
 /*
@@ -65,9 +64,7 @@ Type =
 SELECT --ActualPackages = предыдущая таблица ActualPackages  с указанием типа пакета
 	ActualPackages.PackageId
 	,ActualPackages.LogId
-	,ActualPackages.MemberGuid AS MemberGuid
-	,ActualPackages.PackageXml
-	,IIF(ActualPackages.PackageXmlVersion is null AND ActualPackages.PackageId is not null, 'x', PackageXmlVersion) AS PackageXmlVersion
+	,PackageType.MemberGuid
 	,ActualPackages.ContainerXml
 	,ActualPackages.ContainerXmlVersion
 	,CASE 
@@ -77,13 +74,14 @@ SELECT --ActualPackages = предыдущая таблица ActualPackages  с
 			THEN 4				--ТК
 		ELSE
 			PackageType.Type
-		END AS Type
-	,ActualPackages.Success
+		END			AS Type
+	--,ActualPackages.Success
 	,ActualPackages.ReceivedOn
 FROM (
 	SELECT   --PackageType = определяем тип пакетов (не учитывая период отчета)
 		ValidationLog
-		,MAX(Type) AS Type
+		,MemberGuid
+		,MAX(Type)	AS Type
 	FROM (
 		SELECT --PackageType = определяем: какие критерии есть в оценке пакета. Исходя из них, сделаем вывод о типе
 			ValidationLog
@@ -95,7 +93,7 @@ FROM (
 					THEN 2				--Уведомление
 				WHEN Criterion = '5.1'	
 				THEN 1				--Квитанция
-				END AS Type
+				END		AS Type
 		FROM Score
 		WHERE
 			Criterion = '3.4'
@@ -104,169 +102,165 @@ FROM (
 	) AS CheckPackageType
 	GROUP BY
 		CheckPackageType.ValidationLog
+		,CheckPackageType.MemberGuid
 ) AS PackageType
 
 RIGHT JOIN (
-	SELECT --ActualPackages = обработанные исходящие пакеты в период отчета с последним логом
+	SELECT --ActualPackages = обработанные исходящие пакеты с последним логом
 		ActualLog.PackageId
 		,ActualLog.Max_ValidatedOn
-		,ProcessedPackage.MemberGuid
 		,ProcessedPackage.LogId
-		,ProcessedPackage.PackageXml
-		,ProcessedPackage.PackageXmlVersion
 		,ProcessedPackage.ContainerXml
 		,ProcessedPackage.ContainerXmlVersion
 		,ProcessedPackage.Success
 		,ProcessedPackage.ReceivedOn
 	FROM(
 		SELECT -- ActualLog = последний лог по пакету
-			ValidationLog.Package	AS PackageId
-			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
+			ValidationLog.Package				AS PackageId
+			,MAX(ValidationLog.ValidatedOn)		AS Max_ValidatedOn
 		FROM ValidationLog		
 		GROUP BY
 			ValidationLog.Package
 	) AS ActualLog
 	INNER JOIN (
-		SELECT --ProcessedPackage = обработанные исходящие пакеты в период отчета
+		SELECT --ProcessedPackage = обработанные исходящие пакеты 
 			ValidationLog.Package
-			,ValidationLog.Id AS LogId
+			,ValidationLog.Id		AS LogId
 			,ValidationLog.ValidatedOn
 			,ValidationLog.Success
-			,Batch.MemberGuid
-			,PackageXml
-			,PackageXmlVersion
 			,ContainerXml
 			,ContainerXmlVersion
 			,Package.ReceivedOn
 		FROM Package
 		INNER JOIN ValidationLog
 			ON ValidationLog.Package = Package.Id
-		INNER JOIN Batch
-			ON Batch.Id = Package.Batch
 		WHERE
 			Processed = 1
 			AND Incoming = 0
-			--AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-			--AND Package.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
-			--AND Package.ReceivedOn &gt;=  '2021-03-01' --начало периода отчета
-			--AND Package.ReceivedOn &lt; '2021-04-01' --конец периода отчета	
 	) AS ProcessedPackage
 		ON ProcessedPackage.Package = ActualLog.PackageId
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
 ) AS ActualPackages
 	ON PackageType.ValidationLog = ActualPackages.LogId 
 
+
+
 SELECT
-	Member.Name AS Member
-	,ChangesDynamic = ROUND(
-						CASE
-						WHEN Report1.AllContainer1 &gt; 0 AND Report2.AllContainer2 &gt; 0
-							THEN 100*((100*Report1.[2.7.1_1]/Report1.AllContainer1) - (100*Report2.[2.7.1_2]/Report2.AllContainer2))/(100+ABS(100*Report1.[2.7.1_1]/Report1.AllContainer1) + ABS(100*Report2.[2.7.1_2]/Report2.AllContainer2))
-						WHEN Report1.AllContainer1 &gt; 0 AND (Report2.AllContainer2 = 0 OR Report2.AllContainer2 is null)
-							THEN 100*((100*Report1.[2.7.1_1]/Report1.AllContainer1) - 0)/(100+ABS(100*Report1.[2.7.1_1]/Report1.AllContainer1) + 0)
-						WHEN (Report1.AllContainer1 = 0 OR Report1.AllContainer1 is null) AND Report2.AllContainer2 &gt; 0
-							THEN 100*(0 - (100*Report2.[2.7.1_2]/Report2.AllContainer2))/(100+0 + ABS(100*Report2.[2.7.1_2]/Report2.AllContainer2))
-						ELSE NULL
-						END
-					, 2)
-	,'Score1' = ROUND(
-					IIF(Report1.AllContainer1 &gt; 0
-					,100 * Report1.[2.7.1_1]/Report1.AllContainer1
-					,0)
-				, 2)
-	,Report1.AllContainer1
-	,Report1.[2.7.1_1]
-	,'Score2' = ROUND(
-					IIF(Report2.AllContainer2 &gt; 0
-					,100 * Report2.[2.7.1_2]/Report2.AllContainer2
-					,0)
-				, 2)
-	,Report2.AllContainer2
-	,Report2.[2.7.1_2]
+	DENSE_RANK() OVER (PARTITION BY IIF(ISNULL([2.7.1_1], 0) + ISNULL([2.7.1_2], 0) = 0, 1, 0) ORDER BY ChangesDynamic DESC, Member ASC) AS Rank
+	,*
 FROM (
-	SELECT --EM = оценка перехода на 2.7.1 в период отчета по ЭС
-		MemberED AS MemberED2
-		,'AllContainer2' = CAST(ISNULL(VersionContainer.[2.7.1], 0) + ISNULL(VersionContainer.[2.7], 0) + ISNULL(VersionContainer.[NoContainer], 0) + ISNULL(VersionContainer.[x], 0) AS FLOAT)
-		,CAST(ISNULL(VersionContainer.[2.7.1], 0) AS FLOAT) AS '2.7.1_2'
+	SELECT
+		Member.Name			AS Member
+		,ChangesDynamic = ROUND(
+							CASE
+							WHEN Report1.AllContainer1 &gt; 0 AND Report2.AllContainer2 &gt; 0
+								THEN 100*((100*Report1.[2.7.1_1]/Report1.AllContainer1) - (100*Report2.[2.7.1_2]/Report2.AllContainer2))/(100+ABS(100*Report1.[2.7.1_1]/Report1.AllContainer1) + ABS(100*Report2.[2.7.1_2]/Report2.AllContainer2))
+							WHEN Report1.AllContainer1 &gt; 0 AND (Report2.AllContainer2 = 0 OR Report2.AllContainer2 is null)
+								THEN 100*((100*Report1.[2.7.1_1]/Report1.AllContainer1) - 0)/(100+ABS(100*Report1.[2.7.1_1]/Report1.AllContainer1) + 0)
+							WHEN (Report1.AllContainer1 = 0 OR Report1.AllContainer1 is null) AND Report2.AllContainer2 &gt; 0
+								THEN 100*(0 - (100*Report2.[2.7.1_2]/Report2.AllContainer2))/(100+0 + ABS(100*Report2.[2.7.1_2]/Report2.AllContainer2))
+							ELSE NULL
+							END
+						, 2)
+		,'Score1' = ROUND(
+						IIF(Report1.AllContainer1 &gt; 0 ,100 * Report1.[2.7.1_1]/Report1.AllContainer1 ,0)
+					, 2)
+		,Report1.AllContainer1
+		,Report1.[2.7.1_1]
+		,'Score2' = ROUND(
+						IIF(Report2.AllContainer2 &gt; 0 ,100 * Report2.[2.7.1_2]/Report2.AllContainer2 ,0)
+					, 2)
+		,Report2.AllContainer2
+		,Report2.[2.7.1_2]
 	FROM (
-		SELECT
-			MemberED
-			,ContainerXmlVersion
-			,COUNT(*) AS CountContainerXmlVersion
+		SELECT --EM = оценка перехода на 2.7.1 в период сравнения по ЭС
+			MemberED AS MemberED2
+			,'AllContainer2' = CAST(ISNULL(VersionContainer.[2.7.1], 0) + ISNULL(VersionContainer.[2.7], 0) + ISNULL(VersionContainer.[NoContainer], 0) + ISNULL(VersionContainer.[x], 0) AS FLOAT)
+			,CAST(ISNULL(VersionContainer.[2.7.1], 0) AS FLOAT) AS '2.7.1_2'
 		FROM (
-			SELECT 
-				#Tmp.MemberGuid AS MemberED
-				,CASE 
-					WHEN #Tmp.Type = 3 				--Документ
-						THEN 'NoContainer'
-					WHEN #Tmp.Type = 4 AND #Tmp.ContainerXmlVersion is null
-						THEN 'x'				--ТК
-					ELSE
-						#Tmp.ContainerXmlVersion
-					END 
-				AS ContainerXmlVersion			
-			FROM #Tmp
-			WHERE
-				#Tmp.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStartCompare), DATEPART(MONTH, @DataStartCompare), DATEPART(DAY, @DataStartCompare), '0', '0', '0', '0') --начало периода отчета
-				AND #Tmp.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEndCompare), DATEPART(MONTH, @DataEndCompare), DATEPART(DAY, @DataEndCompare), '23', '59', '59', '0') --конец периода отчета
-		) AS Containers
-		GROUP BY 
-			MemberED
-			,ContainerXmlVersion
-	)x
-	PIVOT (
-	MAX(CountContainerXmlVersion)
-		FOR ContainerXmlVersion
-		IN([2.7.1],[2.7],[NoContainer],[x])
-	) AS VersionContainer
-) AS Report2
-FULL OUTER JOIN (
-	SELECT --EM = оценка перехода на 2.7.1 в период отчета по ЭС
-		MemberED AS MemberED1
-		,'AllContainer1' = CAST(ISNULL(VersionContainer.[2.7.1], 0) + ISNULL(VersionContainer.[2.7], 0) + ISNULL(VersionContainer.[NoContainer], 0) + ISNULL(VersionContainer.[x], 0) AS FLOAT)
-		,CAST(ISNULL(VersionContainer.[2.7.1], 0) AS FLOAT) AS '2.7.1_1'
-	FROM (
-		SELECT
-			MemberED
-			,ContainerXmlVersion
-			,COUNT(*) AS CountContainerXmlVersion
+			SELECT --Containers = Кол-во каждой версии ЭД по каждому участнику в период сравнения
+				MemberED
+				,ContainerXmlVersion
+				,COUNT(*) AS CountContainerXmlVersion
+			FROM (
+				SELECT 
+					#Tmp.MemberGuid AS MemberED
+					,CASE 
+						WHEN #Tmp.Type = 3 				--Документ
+							THEN 'NoContainer'
+						WHEN #Tmp.Type = 4 AND #Tmp.ContainerXmlVersion is null
+							THEN 'x'					--ТК без формата
+						ELSE
+							#Tmp.ContainerXmlVersion	--ТК
+						END 
+					AS ContainerXmlVersion			
+				FROM #Tmp
+				WHERE
+					#Tmp.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0') --начало периода отчета
+					AND #Tmp.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '23', '59', '59', '0') --конец периода отчета
+			) AS Containers
+			GROUP BY 
+				MemberED
+				,ContainerXmlVersion
+		)x
+		PIVOT (
+		MAX(CountContainerXmlVersion)
+			FOR ContainerXmlVersion
+			IN([2.7.1],[2.7],[NoContainer],[x])
+		) AS VersionContainer
+	) AS Report2
+	FULL OUTER JOIN (
+		SELECT --EM = оценка перехода на 2.7.1 в период отчета по ЭС
+			MemberED AS MemberED1
+			,'AllContainer1' = CAST(ISNULL(VersionContainer.[2.7.1], 0) + ISNULL(VersionContainer.[2.7], 0) + ISNULL(VersionContainer.[NoContainer], 0) + ISNULL(VersionContainer.[x], 0) AS FLOAT)
+			,CAST(ISNULL(VersionContainer.[2.7.1], 0) AS FLOAT) AS '2.7.1_1'
 		FROM (
-			SELECT 
-				#Tmp.MemberGuid AS MemberED
-				,CASE 
-					WHEN #Tmp.Type = 3 				--Документ
-						THEN 'NoContainer'
-					WHEN #Tmp.Type = 4 AND #Tmp.ContainerXmlVersion is null
-						THEN 'x'				--ТК
-					ELSE
-						#Tmp.ContainerXmlVersion
-					END 
-				AS ContainerXmlVersion			
-			FROM #Tmp
-			WHERE
-				#Tmp.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-				AND #Tmp.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
-		) AS Containers
-		GROUP BY 
-			MemberED
-			,ContainerXmlVersion
-	)x
-	PIVOT (
-	MAX(CountContainerXmlVersion)
-		FOR ContainerXmlVersion
-		IN([2.7.1],[2.7],[NoContainer],[x])
-	) AS VersionContainer
-) AS Report1
-	ON Report1.MemberED1 = Report2.MemberED2
-RIGHT JOIN Member
-	ON Member.Guid = IIF(Report2.MemberED2 is not null, Report2.MemberED2, Report1.MemberED1) COLLATE SQL_Latin1_General_CP1_CI_AS
-WHERE
-	Member.Active = 1</CommandText>
+			SELECT --Containers = Кол-во каждой версии ЭД по каждому участнику в период отчета
+				MemberED
+				,ContainerXmlVersion
+				,COUNT(*) AS CountContainerXmlVersion
+			FROM (
+				SELECT 
+					#Tmp.MemberGuid AS MemberED
+					,CASE 
+						WHEN #Tmp.Type = 3 				--Документ
+							THEN 'NoContainer'
+						WHEN #Tmp.Type = 4 AND #Tmp.ContainerXmlVersion is null
+							THEN 'x'					--ТК без формата
+						ELSE
+							#Tmp.ContainerXmlVersion	--ТК
+						END 
+					AS ContainerXmlVersion			
+				FROM #Tmp
+				WHERE
+					#Tmp.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+					AND #Tmp.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
+			) AS Containers
+			GROUP BY 
+				MemberED
+				,ContainerXmlVersion
+		)x
+		PIVOT (
+		MAX(CountContainerXmlVersion)
+			FOR ContainerXmlVersion
+			IN([2.7.1],[2.7],[NoContainer],[x])
+		) AS VersionContainer
+	) AS Report1
+		ON Report1.MemberED1 = Report2.MemberED2
+	RIGHT JOIN Member
+		ON Member.Guid = IIF(Report2.MemberED2 is not null, Report2.MemberED2, Report1.MemberED1) COLLATE SQL_Latin1_General_CP1_CI_AS
+	WHERE
+		Member.Active = 1
+) AS Final_table</CommandText>
       </Query>
       <Fields>
         <Field Name="Member">
           <DataField>Member</DataField>
           <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="Rank">
+          <DataField>Rank</DataField>
+          <rd:TypeName>System.Int64</rd:TypeName>
         </Field>
         <Field Name="ChangesDynamic">
           <DataField>ChangesDynamic</DataField>
@@ -326,7 +320,7 @@ WHERE
             <rd:DefaultName>ReportTitle</rd:DefaultName>
             <Top>0mm</Top>
             <Height>10.16mm</Height>
-            <Width>297.67164mm</Width>
+            <Width>235.41209mm</Width>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -344,9 +338,8 @@ WHERE
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(Parameters!DataStart.Value, "dd MMM yyyy")</Value>
+                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
                   </TextRun>
@@ -358,9 +351,9 @@ WHERE
             </Paragraphs>
             <rd:DefaultName>DataStart</rd:DefaultName>
             <Top>11.92389mm</Top>
-            <Left>43.41286mm</Left>
+            <Left>40.46235mm</Left>
             <Height>6mm</Height>
-            <Width>21.71506mm</Width>
+            <Width>31.57305mm</Width>
             <ZIndex>1</ZIndex>
             <Style>
               <Border>
@@ -379,9 +372,8 @@ WHERE
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DataEnd.Value)), "dd MMM yyyy")</Value>
+                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)), "dd MMMM yyyy")</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
                   </TextRun>
@@ -393,9 +385,9 @@ WHERE
             </Paragraphs>
             <rd:DefaultName>DataEnd</rd:DefaultName>
             <Top>11.92389mm</Top>
-            <Left>72.93mm</Left>
+            <Left>79.83748mm</Left>
             <Height>6mm</Height>
-            <Width>53.55952mm</Width>
+            <Width>65.57461mm</Width>
             <ZIndex>2</ZIndex>
             <Style>
               <Border>
@@ -416,7 +408,6 @@ WHERE
                   <TextRun>
                     <Value>Период отчета:</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <FontWeight>Bold</FontWeight>
                     </Style>
                   </TextRun>
@@ -428,7 +419,7 @@ WHERE
             <Top>11.92389mm</Top>
             <Left>0mm</Left>
             <Height>6mm</Height>
-            <Width>38.52119mm</Width>
+            <Width>35.57068mm</Width>
             <ZIndex>3</ZIndex>
             <Style>
               <Border>
@@ -448,9 +439,7 @@ WHERE
                 <TextRuns>
                   <TextRun>
                     <Value>c</Value>
-                    <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
-                    </Style>
+                    <Style />
                   </TextRun>
                 </TextRuns>
                 <Style>
@@ -460,7 +449,7 @@ WHERE
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
             <Top>11.92389mm</Top>
-            <Left>38.52119mm</Left>
+            <Left>35.57068mm</Left>
             <Height>6mm</Height>
             <Width>4.89167mm</Width>
             <ZIndex>4</ZIndex>
@@ -478,31 +467,31 @@ WHERE
             <TablixBody>
               <TablixColumns>
                 <TablixColumn>
-                  <Width>21.13082mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
                   <Width>62.41209mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>39.18167mm</Width>
+                  <Width>30mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>31.61458mm</Width>
+                  <Width>32mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>29mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>29.02165mm</Width>
+                  <Width>29mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>34.23082mm</Width>
+                  <Width>32mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>29mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>30.08001mm</Width>
+                  <Width>29mm</Width>
                 </TablixColumn>
               </TablixColumns>
               <TablixRows>
@@ -518,7 +507,7 @@ WHERE
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=IIF((Fields!ID2_7_1_1.Value = 0 OR IsNothing(Fields!ID2_7_1_1.Value) = TRUE ) AND (Fields!ID2_7_1_2.Value = 0 OR IsNothing(Fields!ID2_7_1_2.Value) = TRUE ), "-", RunningValue(Round(Fields!ChangesDynamic.Value, 2), CountDistinct, Nothing))</Value>
+                                  <Value>=IIF((Fields!ID2_7_1_1.Value = 0 OR IsNothing(Fields!ID2_7_1_1.Value) = TRUE ) AND (Fields!ID2_7_1_2.Value = 0 OR IsNothing(Fields!ID2_7_1_2.Value) = TRUE ), "-", Fields!Rank.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontWeight>Bold</FontWeight>
@@ -1614,29 +1603,17 @@ WHERE
             <DataSetName>Report1</DataSetName>
             <SortExpressions>
               <SortExpression>
-                <Value>=IIF(Fields!ID2_7_1_1.Value &gt; 0 OR Fields!ID2_7_1_2.Value &gt; 0, 1, 0)</Value>
+                <Value>=IIF(IIF(IsNothing(Fields!ID2_7_1_1.Value) = TRUE, 0, Fields!ID2_7_1_1.Value) +IIF(IsNothing(Fields!ID2_7_1_2.Value) = TRUE, 0, Fields!ID2_7_1_2.Value) =0, 0, 1)</Value>
                 <Direction>Descending</Direction>
               </SortExpression>
               <SortExpression>
-                <Value>=Fields!ChangesDynamic.Value</Value>
-                <Direction>Descending</Direction>
-              </SortExpression>
-              <SortExpression>
-                <Value>=Fields!Score1.Value</Value>
-                <Direction>Descending</Direction>
-              </SortExpression>
-              <SortExpression>
-                <Value>=Fields!Score2.Value</Value>
-                <Direction>Descending</Direction>
-              </SortExpression>
-              <SortExpression>
-                <Value>=Fields!Member.Value</Value>
+                <Value>=Fields!Rank.Value</Value>
               </SortExpression>
             </SortExpressions>
             <Top>24.62944mm</Top>
             <Left>0mm</Left>
             <Height>23.82123mm</Height>
-            <Width>297.67164mm</Width>
+            <Width>293.41209mm</Width>
             <ZIndex>5</ZIndex>
             <Style>
               <Border>
@@ -1652,9 +1629,7 @@ WHERE
                 <TextRuns>
                   <TextRun>
                     <Value>по</Value>
-                    <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
-                    </Style>
+                    <Style />
                   </TextRun>
                 </TextRuns>
                 <Style>
@@ -1664,7 +1639,7 @@ WHERE
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
             <Top>11.92389mm</Top>
-            <Left>65.12792mm</Left>
+            <Left>72.0354mm</Left>
             <Height>6mm</Height>
             <Width>7.80208mm</Width>
             <ZIndex>6</ZIndex>
@@ -1687,7 +1662,6 @@ WHERE
                   <TextRun>
                     <Value>Период сравнения:</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <FontWeight>Bold</FontWeight>
                     </Style>
                   </TextRun>
@@ -1699,7 +1673,7 @@ WHERE
             <Top>17.92389mm</Top>
             <Left>0mm</Left>
             <Height>6mm</Height>
-            <Width>38.52119mm</Width>
+            <Width>35.57068mm</Width>
             <ZIndex>7</ZIndex>
             <Style>
               <Border>
@@ -1718,9 +1692,8 @@ WHERE
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(Parameters!DataStartCompare.Value, "dd MMM yyyy")</Value>
+                    <Value>=Format(Parameters!DateStartCompare.Value, "dd MMMM yyyy")</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
                   </TextRun>
@@ -1732,9 +1705,9 @@ WHERE
             </Paragraphs>
             <rd:DefaultName>DataStart</rd:DefaultName>
             <Top>17.92389mm</Top>
-            <Left>43.41286mm</Left>
+            <Left>40.46235mm</Left>
             <Height>6mm</Height>
-            <Width>21.71506mm</Width>
+            <Width>31.57305mm</Width>
             <ZIndex>8</ZIndex>
             <Style>
               <Border>
@@ -1753,9 +1726,8 @@ WHERE
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DataEndCompare.Value)), "dd MMM yyyy")</Value>
+                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEndCompare.Value)), "dd MMMM yyyy")</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
                   </TextRun>
@@ -1767,9 +1739,9 @@ WHERE
             </Paragraphs>
             <rd:DefaultName>DataEnd</rd:DefaultName>
             <Top>17.92389mm</Top>
-            <Left>72.93mm</Left>
+            <Left>79.83748mm</Left>
             <Height>6mm</Height>
-            <Width>53.55952mm</Width>
+            <Width>65.57461mm</Width>
             <ZIndex>9</ZIndex>
             <Style>
               <Border>
@@ -1789,9 +1761,7 @@ WHERE
                 <TextRuns>
                   <TextRun>
                     <Value>c</Value>
-                    <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
-                    </Style>
+                    <Style />
                   </TextRun>
                 </TextRuns>
                 <Style>
@@ -1801,7 +1771,7 @@ WHERE
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
             <Top>17.92389mm</Top>
-            <Left>38.52119mm</Left>
+            <Left>35.57068mm</Left>
             <Height>6mm</Height>
             <Width>4.89167mm</Width>
             <ZIndex>10</ZIndex>
@@ -1823,9 +1793,7 @@ WHERE
                 <TextRuns>
                   <TextRun>
                     <Value>по</Value>
-                    <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
-                    </Style>
+                    <Style />
                   </TextRun>
                 </TextRuns>
                 <Style>
@@ -1835,7 +1803,7 @@ WHERE
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
             <Top>17.92389mm</Top>
-            <Left>65.12792mm</Left>
+            <Left>72.0354mm</Left>
             <Height>6mm</Height>
             <Width>7.80208mm</Width>
             <ZIndex>11</ZIndex>
@@ -1857,7 +1825,7 @@ WHERE
           </Border>
         </Style>
       </Body>
-      <Width>297.67164mm</Width>
+      <Width>293.41209mm</Width>
       <Page>
         <PageFooter>
           <Height>8.11389mm</Height>
@@ -1884,7 +1852,7 @@ WHERE
               </Paragraphs>
               <rd:DefaultName>ExecutionTime</rd:DefaultName>
               <Top>1.76389mm</Top>
-              <Left>248.23415mm</Left>
+              <Left>243.9746mm</Left>
               <Height>6.35mm</Height>
               <Width>49.43749mm</Width>
               <Style>
@@ -1917,9 +1885,9 @@ WHERE
               </Paragraphs>
               <rd:DefaultName>Textbox87</rd:DefaultName>
               <Top>1.76389mm</Top>
-              <Left>220.40999mm</Left>
+              <Left>203.41209mm</Left>
               <Height>6.35mm</Height>
-              <Width>27.82416mm</Width>
+              <Width>40.56251mm</Width>
               <ZIndex>1</ZIndex>
               <Style>
                 <Border>
@@ -1952,7 +1920,7 @@ WHERE
     </ReportSection>
   </ReportSections>
   <ReportParameters>
-    <ReportParameter Name="DataStart">
+    <ReportParameter Name="DateStart">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>
@@ -1961,7 +1929,7 @@ WHERE
       </DefaultValue>
       <Prompt>Начало периода отчета</Prompt>
     </ReportParameter>
-    <ReportParameter Name="DataEnd">
+    <ReportParameter Name="DateEnd">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>
@@ -1970,7 +1938,7 @@ WHERE
       </DefaultValue>
       <Prompt>Окончание периода отчета</Prompt>
     </ReportParameter>
-    <ReportParameter Name="DataStartCompare">
+    <ReportParameter Name="DateStartCompare">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>
@@ -1979,7 +1947,7 @@ WHERE
       </DefaultValue>
       <Prompt>Начало периода сравнения</Prompt>
     </ReportParameter>
-    <ReportParameter Name="DataEndCompare">
+    <ReportParameter Name="DateEndCompare">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>

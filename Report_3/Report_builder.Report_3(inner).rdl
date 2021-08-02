@@ -17,43 +17,76 @@
       <Query>
         <DataSourceName>MedonomFull</DataSourceName>
         <QueryParameters>
-          <QueryParameter Name="@DataStart">
-            <Value>=Parameters!DataStart.Value</Value>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
           </QueryParameter>
           <QueryParameter Name="@Member">
             <Value>=Parameters!Member.Value</Value>
           </QueryParameter>
-          <QueryParameter Name="@DataEnd">
-            <Value>=Parameters!DataEnd.Value</Value>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
           </QueryParameter>
         </QueryParameters>
-        <CommandText>--DROP TABLE #tmp_Packages
---DROP TABLE #ScoreReceipt
---DROP TABLE #ScoreNotifications
-CREATE TABLE #tmp_Packages (LogId BIGINT PRIMARY KEY, PackageId INT, ReceivedOn DATETIME2(7) NULL)
-CREATE TABLE #ScoreReceipt (PackageIdR INT, MemberResponseMessagerR NVARCHAR(255), MessageTypeR NVARCHAR(255), PackageDelivaredOnR DATETIME2(7), TotalMessageR INT, RequieredR INT, ResponsedR INT)
-CREATE TABLE #ScoreNotifications (PackageIdN INT, MemberResponseMessagerN NVARCHAR(255), MessageTypeN NVARCHAR(255), PackageDelivaredOnN DATETIME2(7), TotalMessageN INT, RequieredN INT, ResponsedN INT)
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--DECLARE @Member nvarchar(255)
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-06-01'
+--SET @Member = '1D04CA3E-DF1A-0CB4-C325-6EF4003CA2AB' --Минцифры России
+-------------------------------------------------------------------
+
+IF OBJECT_ID('tempdb..#tmp_Packages') is not null
+	DROP TABLE #tmp_Packages
+IF OBJECT_ID('tempdb..#ScoreReceipt') is not null
+	DROP TABLE #ScoreReceipt
+IF OBJECT_ID('tempdb..#ScoreNotifications') is not null
+	DROP TABLE #ScoreNotifications
+
+CREATE TABLE #tmp_Packages (
+							LogId BIGINT PRIMARY KEY
+							,PackageId INT
+							,ReceivedOn DATETIME2(7) NULL
+						)
+CREATE TABLE #ScoreReceipt (
+							PackageIdR INT
+							,MemberResponseMessagerR CHAR(36)
+							,MessageTypeR NVARCHAR(255)
+							,PackageDelivaredOnR DATETIME2(7)
+							,TotalMessageR INT
+							,RequieredR INT
+							,ResponsedR INT
+						)
+CREATE TABLE #ScoreNotifications (
+							PackageIdN INT
+							,MemberResponseMessagerN CHAR(36)
+							,MessageTypeN NVARCHAR(255)
+							,PackageDelivaredOnN DATETIME2(7)
+							,TotalMessageN INT
+							,RequieredN INT
+							,ResponsedN INT
+						)
 
 
 INSERT INTO #tmp_Packages  
-	SELECT -- ActualLogs = актуальные пакеты в периоде отчёта
+	SELECT -- ActualLogs = актуальные пакеты с последним логом
 		ReportPacks.LogId
-		,ReportPacks.Id as PackageId
+		,ReportPacks.Id			AS PackageId
 		,ReportPacks.ReceivedOn
 	FROM (
 		SELECT -- ActualDates = актуальные даты логов пакетов. Если логи по пакету менялись, то берем последний обработанный лог
 			Package AS Max_Package
-			,MAX(ValidatedOn) AS Max_ValidatedOn
+			,MAX(ValidatedOn)	AS Max_ValidatedOn
 		FROM	
 			ValidationLog
 		WHERE 
-			Success = 1
+			Success = 1 --????
 		GROUP BY
 			Package
 	) AS ActualDates
 	INNER JOIN (
-		SELECT -- ReportPacks = все обработанные (processed = 1) пакеты в периоде отчёта 
-			ValidationLog.Id AS LogId
+		SELECT -- ReportPacks = все обработанные (processed = 1) пакеты
+			ValidationLog.Id	AS LogId
 			,Package.Id
 			,Package.ValidatedOn
 			,Package.ReceivedOn
@@ -66,316 +99,268 @@ INSERT INTO #tmp_Packages
 		INNER JOIN Member
 			ON Member.Guid = Batch.MemberGuid
 		WHERE
-			--Package.ReceivedOn &gt;=  @DataStart --начало периода отчета
-			--AND Package.ReceivedOn &lt; @DataEnd --конец периода отчета
 			--Package.Incoming = 1 --только исходящие пакеты 
 			Package.Processed = 1 --только обработанные пакеты
-			--AND Member.Name = @Member
 	) AS ReportPacks
 		ON ActualDates.Max_Package = ReportPacks.Id
 		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
 
+
 INSERT INTO #ScoreReceipt
-	SELECT		
-		PackageIdR
-		,Member.Name
-		,MessageTypeR
-		,PackageDelivaredOnR
-		,[TotalMessageR]
-		,[RequieredR]
-		,[ResponsedR]
+	SELECT -- ScoreReceipt --оценка соблюдения регламента отправки техн. ЭС (сравнение дат ожидания квитанции и ее фактического поступления)
+		RequestMessage.PackageId			AS PackageIdR
+		,RequestMessage.RecipientGuid		AS MemberResponseMessagerR
+		,RequestMessage.MessageType			AS MessageTypeR
+		,RequestMessage.PackageDelivaredOn  AS PackageDelivaredOnR
+		,'TotalMessageR' = 1
+		,'RequieredR' = CASE WHEN 
+								RequestMessage.PackageDelivaredOn is not null 
+								AND RequestMessage.MessageType &lt;&gt; N'Квитанция'
+							THEN 1
+							ELSE 0
+							END
+		,'ResponsedR' = CASE WHEN 
+								ResponseMessage.ResponseDelivaredOn is not null
+								AND RequestMessage.MessageType &lt;&gt; N'Квитанция'
+							THEN 1
+							ELSE 0
+							END
 	FROM (
-		SELECT -- ScoreReceipt
-			 RequestMessage.PackageId			AS PackageIdR
-			 --,Member.Name						AS MemberResponseMessagerR
-			,RequestMessage.RecipientGuid		AS MemberResponseMessagerR
-			,RequestMessage.MessageType			AS MessageTypeR
-			,RequestMessage.PackageDelivaredOn  AS PackageDelivaredOnR
-			,'TotalMessageR' = 1
-			,'RequieredR' = CASE WHEN 
-									RequestMessage.PackageDelivaredOn is not null 
-									AND RequestMessage.MessageType &lt;&gt; N'Квитанция'
-								THEN 1
-								ELSE 0
-								END
-			,'ResponsedR' = CASE WHEN 
-									ResponseMessage.ResponseDelivaredOn is not null
-									AND RequestMessage.MessageType &lt;&gt; N'Квитанция'
-								THEN 1
-								ELSE 0
-								END
+		SELECT --RequestMessage - документы/ТК, ожидающие квитанции в период очета
+			MAX(#tmp_Packages.PackageId)	AS PackageId
+			,AllRequestMessage.MessageUid
+			,AllRequestMessage.SenderGuid
+			,AllRequestMessage.MessageType
+			,AllRequestMessage.RecipientGuid
+			,AllRequestMessage.PackageDelivaredOn
 		FROM (
-			SELECT --RequestMessage - документы/ТК, ожидающие квитанции в период очета
-				MAX(#tmp_Packages.PackageId) AS PackageId
-				,AllRequestMessage.MessageUid
-				,AllRequestMessage.SenderGuid
-				,AllRequestMessage.MessageType
-				,AllRequestMessage.RecipientGuid
-				,AllRequestMessage.PackageDelivaredOn
-			FROM (
-				SELECT  --AllRequestMessage - Все документы/ТК, ожидающие квитанции (или просто входящие квитанции)
-					MessageUid
-					,SenderGuid
-					,MessageType
-					,RecipientGuid
-					,MAX(PackageDelivaredOn) AS PackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
-				FROM 
-					ConfirmationControl --WHERE Request = 1 отсутсвует, ибо мы смотрим ВСЕ входящие учаснику пакеты
-				GROUP BY
-					MessageUid
-					,SenderGuid
-					,RecipientGuid
-					,MessageType
-			) AS AllRequestMessage
-			INNER JOIN ConfirmationControl
-				ON ConfirmationControl.PackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
-				AND ConfirmationControl.MessageUid = AllRequestMessage.MessageUid
-				AND ConfirmationControl.SenderGuid = AllRequestMessage.SenderGuid
-				AND ConfirmationControl.RecipientGuid = AllRequestMessage.RecipientGuid
-				AND ConfirmationControl.MessageType = AllRequestMessage.MessageType
-			INNER JOIN #tmp_Packages
-				ON #tmp_Packages.LogId = ConfirmationControl.ValidatingLog
+			SELECT  --AllRequestMessage - Все документы/ТК, ожидающие квитанции (или просто входящие квитанции)
+				MessageUid
+				,ValidatingLog
+				,SenderGuid
+				,MessageType
+				,RecipientGuid
+				,PackageDelivaredOn
+				,MAX(PackageDelivaredOn) OVER (PARTITION BY  MessageUid
+												,SenderGuid
+												,RecipientGuid
+												,MessageType
+											) AS MinPackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
+			FROM 
+				ConfirmationControl --WHERE Request = 1 отсутсвует, ибо мы смотрим ВСЕ входящие учаснику пакеты
 			WHERE
-				--#tmp_Packages.ReceivedOn &gt;=  '2021-03-10' --начало периода отчета
-				--AND #tmp_Packages.ReceivedOn &lt; '2021-03-11' --конец периода отчета
-				--ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-				--AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета	
-				#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-				AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета	
-				AND AllRequestMessage.PackageDelivaredOn is not null
-			GROUP BY 
-				AllRequestMessage.MessageUid
-				,AllRequestMessage.SenderGuid
-				,AllRequestMessage.MessageType
-				,AllRequestMessage.RecipientGuid
-				,AllRequestMessage.PackageDelivaredOn
-		) AS RequestMessage
-		LEFT OUTER JOIN (
-			SELECT		--ResponseMessage - Все квитанции, отправленные в ответ на документы/ТК, с номерами пакетов
-				MAX(#tmp_Packages.PackageId) AS PackageId --MAX берем, потому что может опять при объединении совпасть sender, repicient, messUid и даже ResponseDelivaredOn
-				,AllResponseMessage.MessageUid
-				,AllResponseMessage.SenderGuid
-				,AllResponseMessage.RecipientGuid
-				,AllResponseMessage.ResponseDelivaredOn
-			FROM (
-				SELECT --AllResponseMessage - Все квитанции, отправленные в ответ на документы/ТК
-					MessageUid
-					,SenderGuid
-					,RecipientGuid
-					,MessageType
-					,MIN(PackageDelivaredOn) AS ResponseDelivaredOn --если более 1 одинаковой отправки квитанции (sender, Mess.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи
-				FROM 
-					ConfirmationControl
-				WHERE
-					ResponseCount = 1
-					--AND SenderGuid = '853dResponseMessage228-05e8-4ResponseMessage45-92ee-19deResponseMessageef3039f'
-				GROUP BY
-					MessageUid
-					,SenderGuid
-					,RecipientGuid
-					,MessageType
-			) AS AllResponseMessage
+				RecipientGuid = @Member
+		) AS AllRequestMessage
+		INNER JOIN #tmp_Packages
+			ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
+		WHERE
+			--ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			--AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета	
+			#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета	
+			AND AllRequestMessage.PackageDelivaredOn is not null
+			AND AllRequestMessage.MinPackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
+		GROUP BY 
+			AllRequestMessage.MessageUid
+			,AllRequestMessage.SenderGuid
+			,AllRequestMessage.MessageType
+			,AllRequestMessage.RecipientGuid
+			,AllRequestMessage.PackageDelivaredOn
+	) AS RequestMessage
 
-			INNER JOIN ConfirmationControl
-				ON ConfirmationControl.PackageDelivaredOn = AllResponseMessage.ResponseDelivaredOn
-				AND ConfirmationControl.MessageUid = AllResponseMessage.MessageUid
-				AND ConfirmationControl.SenderGuid = AllResponseMessage.SenderGuid
-				AND ConfirmationControl.RecipientGuid = AllResponseMessage.RecipientGuid
-				AND ConfirmationControl.MessageType = AllResponseMessage.MessageType
-			INNER JOIN #tmp_Packages
-				ON #tmp_Packages.LogId = ConfirmationControl.ValidatingLog
-			GROUP BY				
-				AllResponseMessage.MessageUid
-				,AllResponseMessage.SenderGuid
-				,AllResponseMessage.RecipientGuid
-				,AllResponseMessage.ResponseDelivaredOn
-		) AS ResponseMessage
-			ON RequestMessage.MessageUid = ResponseMessage.MessageUid 
-			AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
-			AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
-		WHERE 
-			(CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-				END 
-			&gt; 0 
-			AND CASE
-						WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
-						THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-						ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-						END
-					is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DataDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+	LEFT OUTER JOIN (
+		SELECT		--ResponseMessage - Все квитанции, отправленные в ответ на документы/ТК, с номерами пакетов
+			MAX(#tmp_Packages.PackageId)	AS PackageId --MAX берем, потому что может опять при объединении совпасть sender, repicient, messUid и даже ResponseDelivaredOn
+			,AllResponseMessage.MessageUid
+			,AllResponseMessage.SenderGuid
+			,AllResponseMessage.RecipientGuid
+			,AllResponseMessage.ResponseDelivaredOn
+		FROM (
+			SELECT --AllResponseMessage - Все квитанции, отправленные в ответ на документы/ТК
+				MessageUid
+				,ValidatingLog
+				,SenderGuid
+				,RecipientGuid
+				,MessageType
+				,PackageDelivaredOn		AS ResponseDelivaredOn
+				,MIN(PackageDelivaredOn) OVER (PARTITION BY  MessageUid
+															,SenderGuid
+															,RecipientGuid
+															,MessageType
+												) AS MinResponseDelivaredOn --если более 1 одинаковой отправки квитанции (sender, Mess.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи
+			FROM 
+				ConfirmationControl
+			WHERE
+				ResponseCount = 1
+				AND SenderGuid = @Member
+		) AS AllResponseMessage
+		INNER JOIN #tmp_Packages
+			ON #tmp_Packages.LogId = AllResponseMessage.ValidatingLog
+		WHERE
+			AllResponseMessage.MinResponseDelivaredOn = AllResponseMessage.ResponseDelivaredOn
+		GROUP BY				
+			AllResponseMessage.MessageUid
+			,AllResponseMessage.SenderGuid
+			,AllResponseMessage.RecipientGuid
+			,AllResponseMessage.ResponseDelivaredOn
+	) AS ResponseMessage
+		ON RequestMessage.MessageUid = ResponseMessage.MessageUid 
+		AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
+		AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
+
+	WHERE 
+		(CASE
+			WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+			THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+			ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+			END 
+		&gt; 0 
+		AND CASE
+					WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
+					THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+					ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+					END
+				is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
 	
-			OR (CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-				END
-			&lt;= 0 )
-	) AS FinalScoreReceipt
-	RIGHT JOIN Member
-		ON Member.Guid = FinalScoreReceipt.MemberResponseMessagerR
-	WHERE
-		Member.Name = @Member
-
+		OR (CASE
+			WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+			THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+			ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+			END
+		&lt;= 0 )
 
 
 INSERT INTO #ScoreNotifications
-	SELECT		
-		PackageIdN
-		,Member.Name
-		,MessageTypeN
-		,PackageDelivaredOnN
-		,[TotalMessageN]
-		,[RequieredN]
-		,[ResponsedN]
+	SELECT -- ScoreNotifications  = оценка соблюдения регламента отправки техн. ЭС (сравнение дат ожидания уведомления и его фактического поступления)
+		RequestMessage.PackageId			AS PackageIdN
+		,RequestMessage.RecipientGuid		AS MemberResponseMessagerN
+		,RequestMessage.MessageType			AS MessageTypeN
+		,RequestMessage.PackageDelivaredOn	AS PackageDelivaredOnN
+		,'TotalMessageN' = CASE WHEN 
+									RequestMessage.MessageType = N'Квитанция'
+								THEN 0
+								ELSE 1
+								END
+		,'RequieredN' = CASE WHEN 
+								RequestMessage.PackageDelivaredOn is not null 
+								AND RequestMessage.MessageType &lt;&gt; N'Уведомление'
+							THEN 1
+							ELSE 0
+							END
+		,'ResponsedN' = CASE WHEN 
+								ResponseMessage.ResponseDelivaredOn is not null
+								AND RequestMessage.MessageType &lt;&gt; N'Уведомление'
+							THEN 1
+							ELSE 0
+							END
 	FROM (
-		SELECT -- ScoreNotifications
-			RequestMessage.PackageId			AS PackageIdN
-			--,Member.Name						AS MemberResponseMessagerN
-			,RequestMessage.RecipientGuid		AS MemberResponseMessagerN
-			,RequestMessage.MessageType			AS MessageTypeN
-			,RequestMessage.PackageDelivaredOn	AS PackageDelivaredOnN
-			,'TotalMessageN' = CASE WHEN 
-										RequestMessage.MessageType = N'Квитанция'
-									THEN 0
-									ELSE 1
-									END
-			,'RequieredN' = CASE WHEN 
-									RequestMessage.PackageDelivaredOn is not null 
-									AND RequestMessage.MessageType &lt;&gt; N'Уведомление'
-								THEN 1
-								ELSE 0
-								END
-			,'ResponsedN' = CASE WHEN 
-									ResponseMessage.ResponseDelivaredOn is not null
-									AND RequestMessage.MessageType &lt;&gt; N'Уведомление'
-								THEN 1
-								ELSE 0
-								END
+		SELECT --RequestMessage - документы/ТК, ожидающие уведомления в период очета
+			MAX(#tmp_Packages.PackageId)		AS PackageId
+			,AllRequestMessage.DocumentUid 
+			,AllRequestMessage.SenderGuid
+			,AllRequestMessage.MessageType
+			,AllRequestMessage.RecipientGuid
+			,AllRequestMessage.PackageDelivaredOn
 		FROM (
-			SELECT --RequestMessage - документы/ТК, ожидающие уведомления в период очета
-				MAX(#tmp_Packages.PackageId) AS PackageId
-				,AllRequestMessage.DocumentUid 
-				,AllRequestMessage.SenderGuid
-				,AllRequestMessage.MessageType
-				,AllRequestMessage.RecipientGuid
-				,AllRequestMessage.PackageDelivaredOn
-			FROM (
-				SELECT  --AllRequestMessage - Все документы/ТК, ожидающие уведомления (или просто входящие уведомлния)
-					DocumentUid
-					,SenderGuid
-					,MessageType
-					,RecipientGuid
-					,MAX(PackageDelivaredOn) AS PackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
-				FROM 
-					RegistrationControl --WHERE Request = 1 отсутсвует, ибо мы смотрим ВСЕ входящие учаснику пакеты
-				GROUP BY
-					DocumentUid
-					,SenderGuid
-					,RecipientGuid
-					,MessageType
-			) AS AllRequestMessage
-			INNER JOIN RegistrationControl
-				ON RegistrationControl.PackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
-				AND RegistrationControl.DocumentUid = AllRequestMessage.DocumentUid
-				AND RegistrationControl.SenderGuid = AllRequestMessage.SenderGuid
-				AND RegistrationControl.RecipientGuid = AllRequestMessage.RecipientGuid
-				AND RegistrationControl.MessageType = AllRequestMessage.MessageType
-			INNER JOIN #tmp_Packages
-				ON #tmp_Packages.LogId = RegistrationControl.ValidatingLog
+			SELECT  --AllRequestMessage - Все документы/ТК, ожидающие уведомления (или просто входящие уведомлния)
+				DocumentUid
+				,ValidatingLog
+				,SenderGuid
+				,RecipientGuid
+				,MessageType
+				,PackageDelivaredOn
+				,MAX(PackageDelivaredOn) OVER (PARTITION BY  DocumentUid
+															,SenderGuid
+															,RecipientGuid
+															,MessageType
+												) AS MinPackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
+			FROM  
+				RegistrationControl --WHERE Request = 1 отсутсвует, ибо мы смотрим ВСЕ входящие учаснику пакеты
 			WHERE
-				--#tmp_Packages.ReceivedOn &gt;=  '2021-03-10' --начало периода отчета
-				--AND #tmp_Packages.ReceivedOn &lt; '2021-03-11' --конец периода отчета
-				--ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-				--AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета	
-				#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-				AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета									
-				AND AllRequestMessage.PackageDelivaredOn is not null
-			GROUP BY
-				AllRequestMessage.DocumentUid 
-				,AllRequestMessage.SenderGuid
-				,AllRequestMessage.MessageType
-				,AllRequestMessage.RecipientGuid
-				,AllRequestMessage.PackageDelivaredOn
-		) AS RequestMessage
-		LEFT OUTER JOIN (
-			SELECT		--ResponseMessage - Все Уведомления, отправленные в ответ на документы/ТК, с номерами пакетов
-				MAX(#tmp_Packages.PackageId) AS PackageId
-				,AllResponseMessage.DocumentUid
-				,AllResponseMessage.SenderGuid
-				,AllResponseMessage.RecipientGuid
-				,AllResponseMessage.ResponseDelivaredOn
-			FROM (
-				SELECT --AllResponseMessage - Все уведомления, отправленные в ответ на документы/ТК
-					DocumentUid
-					,SenderGuid
-					,MessageType
-					,RecipientGuid
-					,MIN(PackageDelivaredOn) AS ResponseDelivaredOn --если более 1 одинаковой отправки квитанции (sender, Mess.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи
-				FROM 
-					RegistrationControl
-				WHERE
-					ResponseCount = 1
-					--AND SenderGuid = '853dResponseMessage228-05e8-4ResponseMessage45-92ee-19deResponseMessageef3039f'
-				GROUP BY
-					DocumentUid
-					,SenderGuid
-					,RecipientGuid
-					,MessageType
-			) AS AllResponseMessage
-
-			INNER JOIN RegistrationControl
-				ON RegistrationControl.PackageDelivaredOn = AllResponseMessage.ResponseDelivaredOn
-				AND RegistrationControl.DocumentUid = AllResponseMessage.DocumentUid
-				AND RegistrationControl.SenderGuid = AllResponseMessage.SenderGuid
-				AND RegistrationControl.RecipientGuid = AllResponseMessage.RecipientGuid
-				AND RegistrationControl.MessageType = AllResponseMessage.MessageType
-			INNER JOIN #tmp_Packages
-				ON #tmp_Packages.LogId = RegistrationControl.ValidatingLog
-			GROUP BY 			
-				AllResponseMessage.DocumentUid
-				,AllResponseMessage.SenderGuid
-				,AllResponseMessage.RecipientGuid
-				,AllResponseMessage.ResponseDelivaredOn
-		) AS ResponseMessage
-			ON RequestMessage.DocumentUid = ResponseMessage.DocumentUid 
-			AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
-			AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
-		WHERE 
-			(CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-				END 
-			&gt; 0 
-			AND CASE
-						WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
-						THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
-						ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-						END
-					is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DataDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+				RecipientGuid = @Member
+		) AS AllRequestMessage
+		INNER JOIN #tmp_Packages
+			ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
+		WHERE
+			#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета									
+			AND AllRequestMessage.PackageDelivaredOn is not null
+			AND AllRequestMessage.PackageDelivaredOn = AllRequestMessage.MinPackageDelivaredOn
+		GROUP BY
+			AllRequestMessage.DocumentUid 
+			,AllRequestMessage.SenderGuid
+			,AllRequestMessage.MessageType
+			,AllRequestMessage.RecipientGuid
+			,AllRequestMessage.PackageDelivaredOn
+	) AS RequestMessage
+	LEFT OUTER JOIN (
+		SELECT		--ResponseMessage - Все Уведомления, отправленные в ответ на документы/ТК, с номерами пакетов
+			MAX(#tmp_Packages.PackageId)		 AS PackageId
+			,AllResponseMessage.DocumentUid
+			,AllResponseMessage.SenderGuid
+			,AllResponseMessage.RecipientGuid
+			,AllResponseMessage.ResponseDelivaredOn
+		FROM (
+			SELECT --AllResponseMessage - Все уведомления, отправленные в ответ на документы/ТК
+				DocumentUid
+				,ValidatingLog
+				,SenderGuid
+				,RecipientGuid
+				,MessageType
+				,PackageDelivaredOn			AS ResponseDelivaredOn
+				,MIN(PackageDelivaredOn) OVER (PARTITION BY  DocumentUid
+															,SenderGuid
+															,RecipientGuid
+															,MessageType
+												) AS MinResponseDelivaredOn --если более 1 одинаковой отправки уведомления (sender, Mess.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи				
+			FROM 
+				RegistrationControl
+			WHERE
+				ResponseCount = 1
+				AND SenderGuid = @Member
+		) AS AllResponseMessage
+		INNER JOIN #tmp_Packages
+			ON #tmp_Packages.LogId = AllResponseMessage.ValidatingLog
+		WHERE
+			AllResponseMessage.ResponseDelivaredOn = AllResponseMessage.MinResponseDelivaredOn
+		GROUP BY 			
+			AllResponseMessage.DocumentUid
+			,AllResponseMessage.SenderGuid
+			,AllResponseMessage.RecipientGuid
+			,AllResponseMessage.ResponseDelivaredOn
+	) AS ResponseMessage
+		ON RequestMessage.DocumentUid = ResponseMessage.DocumentUid 
+		AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
+		AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
+	WHERE 
+		(CASE
+			WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+			THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
+			ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+			END 
+		&gt; 0 
+		AND CASE
+					WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
+					THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
+					ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+					END
+				is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
 	
 	
-			OR (CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-				END
-			&lt;= 0 )
-	) AS FinalScoreNotifications
-	RIGHT JOIN Member
-		ON Member.Guid = FinalScoreNotifications.MemberResponseMessagerN
-	WHERE
-		Member.Name = @Member
+		OR (CASE
+			WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+			THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
+			ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+			END
+		&lt;= 0 )
+	
 
-SELECT
-	#ScoreReceipt.PackageIdR
-	,#ScoreReceipt.MemberResponseMessagerR
+SELECT --Объединяем оценку соблюдения отправки уведомлений и квитанций воедино
+	#ScoreReceipt.MemberResponseMessagerR
+	,#ScoreReceipt.PackageIdR
 	,#ScoreReceipt.MessageTypeR
 	,#ScoreReceipt.PackageDelivaredOnR
-	,#ScoreReceipt.[TotalMessageR]					AS TotalMessageR
+	,ISNULL(#ScoreReceipt.[TotalMessageR], 0)		AS TotalMessageR
 	,ISNULL(#ScoreReceipt.[RequieredR], 0)			AS RequieredR
 	,ISNULL(#ScoreReceipt.[ResponsedR], 0)			AS ResponsedR
 	,ISNULL(#ScoreNotifications.[TotalMessageN], 0)	AS TotalMessageN
@@ -387,8 +372,7 @@ FULL OUTER JOIN #ScoreReceipt
 WHERE 
 	#ScoreReceipt.PackageIdR IS NOT NULL 
 	OR (MemberResponseMessagerR IS NOT NULL AND #ScoreReceipt.PackageIdR IS NULL)
-	
---ORDER BY MemberResponseMessagerR</CommandText>
+</CommandText>
       </Query>
       <Fields>
         <Field Name="PackageIdR">
@@ -446,14 +430,19 @@ WHERE
       <Query>
         <DataSourceName>MedonomFull</DataSourceName>
         <CommandText>SELECT
-	Name 
+	Name
+	,GUID
 FROM Member
-ORDER BY Name ASC
-</CommandText>
+WHERE Active = 1
+ORDER BY Name ASC</CommandText>
       </Query>
       <Fields>
         <Field Name="Name">
           <DataField>Name</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="GUID">
+          <DataField>GUID</DataField>
           <rd:TypeName>System.String</rd:TypeName>
         </Field>
       </Fields>
@@ -470,7 +459,7 @@ ORDER BY Name ASC
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>Рейтинг участников МЭДО по соблюдению регламентов отправки технологических ЭС</Value>
+                    <Value>Ведомость соблюдения регламентов отправки технологических ЭС участником МЭДО</Value>
                     <Style>
                       <FontFamily>Yu Gothic UI Light</FontFamily>
                       <FontSize>20pt</FontSize>
@@ -485,9 +474,8 @@ ORDER BY Name ASC
             <rd:WatermarkTextbox>Title</rd:WatermarkTextbox>
             <rd:DefaultName>ReportTitle</rd:DefaultName>
             <Top>0mm</Top>
-            <Left>0.13625cm</Left>
             <Height>10.16mm</Height>
-            <Width>301.42875mm</Width>
+            <Width>287.78605mm</Width>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -498,14 +486,14 @@ ORDER BY Name ASC
               <PaddingBottom>2pt</PaddingBottom>
             </Style>
           </Textbox>
-          <Textbox Name="DataStart">
+          <Textbox Name="DateStart">
             <CanGrow>true</CanGrow>
             <KeepTogether>true</KeepTogether>
             <Paragraphs>
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=FormatDateTime(Parameters!DataStart.Value, DateFormat.ShortDate)</Value>
+                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
                     <Style>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
@@ -516,11 +504,10 @@ ORDER BY Name ASC
                 </Style>
               </Paragraph>
             </Paragraphs>
-            <rd:DefaultName>DataStart</rd:DefaultName>
-            <Top>20.31722mm</Top>
-            <Left>37.55126mm</Left>
-            <Height>6mm</Height>
-            <Width>22.04804mm</Width>
+            <Top>11.92389mm</Top>
+            <Left>34.77764mm</Left>
+            <Height>5.29444mm</Height>
+            <Width>31.56433mm</Width>
             <ZIndex>1</ZIndex>
             <Style>
               <Border>
@@ -532,14 +519,14 @@ ORDER BY Name ASC
               <PaddingBottom>2pt</PaddingBottom>
             </Style>
           </Textbox>
-          <Textbox Name="DataEnd">
+          <Textbox Name="DateEnd">
             <CanGrow>true</CanGrow>
             <KeepTogether>true</KeepTogether>
             <Paragraphs>
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=FormatDateTime(DateAdd("s", -1, DateAdd("d", 1, Parameters!DataEnd.Value)), DateFormat.ShortDate)</Value>
+                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)),  "dd MMMM yyyy")</Value>
                     <Style>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
@@ -550,11 +537,10 @@ ORDER BY Name ASC
                 </Style>
               </Paragraph>
             </Paragraphs>
-            <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>20.31722mm</Top>
-            <Left>66.07657mm</Left>
-            <Height>6mm</Height>
-            <Width>53.55952mm</Width>
+            <Top>11.92389mm</Top>
+            <Left>73.17202mm</Left>
+            <Height>5.29444mm</Height>
+            <Width>64.61403mm</Width>
             <ZIndex>2</ZIndex>
             <Style>
               <Border>
@@ -583,8 +569,8 @@ ORDER BY Name ASC
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox59</rd:DefaultName>
-            <Top>20.31722mm</Top>
-            <Left>1.36251mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>0mm</Left>
             <Height>5.29444mm</Height>
             <Width>30.02708mm</Width>
             <ZIndex>3</ZIndex>
@@ -615,10 +601,10 @@ ORDER BY Name ASC
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>20.31722mm</Top>
-            <Left>31.38959mm</Left>
-            <Height>6mm</Height>
-            <Width>6.16167mm</Width>
+            <Top>11.92389mm</Top>
+            <Left>30.02708mm</Left>
+            <Height>5.29445mm</Height>
+            <Width>4.75056mm</Width>
             <ZIndex>4</ZIndex>
             <Style>
               <Border>
@@ -647,9 +633,9 @@ ORDER BY Name ASC
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>20.31722mm</Top>
-            <Left>59.5993mm</Left>
-            <Height>6mm</Height>
+            <Top>11.92389mm</Top>
+            <Left>66.34197mm</Left>
+            <Height>5.29444mm</Height>
             <Width>6.83005mm</Width>
             <ZIndex>5</ZIndex>
             <Style>
@@ -675,16 +661,16 @@ ORDER BY Name ASC
                   <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>23.01249mm</Width>
-                </TablixColumn>
-                <TablixColumn>
                   <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
                   <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>26.39916mm</Width>
+                  <Width>25mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
                   <Width>25mm</Width>
@@ -694,443 +680,6 @@ ORDER BY Name ASC
                 </TablixColumn>
               </TablixColumns>
               <TablixRows>
-                <TablixRow>
-                  <Height>6mm</Height>
-                  <TablixCells>
-                    <TablixCell>
-                      <CellContents>
-                        <Textbox Name="MemberName4">
-                          <CanGrow>true</CanGrow>
-                          <KeepTogether>true</KeepTogether>
-                          <Paragraphs>
-                            <Paragraph>
-                              <TextRuns>
-                                <TextRun>
-                                  <Value>=Fields!MemberResponseMessagerR.Value</Value>
-                                  <Style>
-                                    <FontFamily>Tahoma</FontFamily>
-                                    <FontWeight>Bold</FontWeight>
-                                    <Color>#4d4d4d</Color>
-                                  </Style>
-                                </TextRun>
-                              </TextRuns>
-                              <Style />
-                            </Paragraph>
-                          </Paragraphs>
-                          <rd:DefaultName>MemberName</rd:DefaultName>
-                          <Style>
-                            <Border>
-                              <Color>#4e648a</Color>
-                              <Style>None</Style>
-                            </Border>
-                            <TopBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1.25pt</Width>
-                            </TopBorder>
-                            <BottomBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1pt</Width>
-                            </BottomBorder>
-                            <BackgroundColor>#fafafa</BackgroundColor>
-                            <PaddingLeft>2pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
-                          </Style>
-                        </Textbox>
-                      </CellContents>
-                    </TablixCell>
-                    <TablixCell>
-                      <CellContents>
-                        <Textbox Name="Textbox84">
-                          <CanGrow>true</CanGrow>
-                          <KeepTogether>true</KeepTogether>
-                          <Paragraphs>
-                            <Paragraph>
-                              <TextRuns>
-                                <TextRun>
-                                  <Value />
-                                  <Style>
-                                    <FontFamily>Tahoma</FontFamily>
-                                    <FontWeight>Bold</FontWeight>
-                                    <Color>#4d4d4d</Color>
-                                  </Style>
-                                </TextRun>
-                              </TextRuns>
-                              <Style>
-                                <TextAlign>Center</TextAlign>
-                              </Style>
-                            </Paragraph>
-                          </Paragraphs>
-                          <rd:DefaultName>Textbox75</rd:DefaultName>
-                          <Style>
-                            <Border>
-                              <Color>#4e648a</Color>
-                              <Style>None</Style>
-                            </Border>
-                            <TopBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1.25pt</Width>
-                            </TopBorder>
-                            <BottomBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1pt</Width>
-                            </BottomBorder>
-                            <BackgroundColor>#fafafa</BackgroundColor>
-                            <PaddingLeft>2pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
-                          </Style>
-                        </Textbox>
-                      </CellContents>
-                    </TablixCell>
-                    <TablixCell>
-                      <CellContents>
-                        <Textbox Name="Textbox85">
-                          <CanGrow>true</CanGrow>
-                          <KeepTogether>true</KeepTogether>
-                          <Paragraphs>
-                            <Paragraph>
-                              <TextRuns>
-                                <TextRun>
-                                  <Value>=IIF(IsNothing(Fields!PackageIdR.Value) = true OR (SUM(Fields!RequieredN.Value)=0 AND SUM(Fields!RequieredR.Value) = 0), "-", Cstr(Round(100*(SUM(Fields!ResponsedR.Value)/IIF(SUM(Fields!RequieredR.Value)=0, 1, SUM(Fields!RequieredR.Value))+ SUM(Fields!ResponsedN.Value)/IIF(SUM(Fields!RequieredN.Value) = 0,1, SUM(Fields!RequieredN.Value)))/2, 2)) + " %" )</Value>
-                                  <Style>
-                                    <FontStyle>Italic</FontStyle>
-                                    <FontFamily>Tahoma</FontFamily>
-                                    <FontWeight>Bold</FontWeight>
-                                    <Color>#4d4d4d</Color>
-                                  </Style>
-                                </TextRun>
-                              </TextRuns>
-                              <Style>
-                                <TextAlign>Center</TextAlign>
-                              </Style>
-                            </Paragraph>
-                          </Paragraphs>
-                          <rd:DefaultName>Textbox76</rd:DefaultName>
-                          <Style>
-                            <Border>
-                              <Color>#4e648a</Color>
-                              <Style>None</Style>
-                            </Border>
-                            <TopBorder>
-                              <Style>Solid</Style>
-                              <Width>1.25pt</Width>
-                            </TopBorder>
-                            <BottomBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1pt</Width>
-                            </BottomBorder>
-                            <RightBorder>
-                              <Color>#e5e5e5</Color>
-                              <Style>Solid</Style>
-                              <Width>0.5pt</Width>
-                            </RightBorder>
-                            <BackgroundColor>#fafafa</BackgroundColor>
-                            <PaddingLeft>2pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
-                          </Style>
-                        </Textbox>
-                      </CellContents>
-                    </TablixCell>
-                    <TablixCell>
-                      <CellContents>
-                        <Textbox Name="Textbox88">
-                          <CanGrow>true</CanGrow>
-                          <KeepTogether>true</KeepTogether>
-                          <Paragraphs>
-                            <Paragraph>
-                              <TextRuns>
-                                <TextRun>
-                                  <Value>=IIF(IsNothing(Fields!PackageIdR.Value) = false, SUM(Fields!TotalMessageR.Value), 0)</Value>
-                                  <Style>
-                                    <FontFamily>Tahoma</FontFamily>
-                                    <FontWeight>Bold</FontWeight>
-                                    <Color>#4d4d4d</Color>
-                                  </Style>
-                                </TextRun>
-                              </TextRuns>
-                              <Style>
-                                <TextAlign>Center</TextAlign>
-                              </Style>
-                            </Paragraph>
-                          </Paragraphs>
-                          <rd:DefaultName>Textbox77</rd:DefaultName>
-                          <Style>
-                            <Border>
-                              <Color>#4e648a</Color>
-                              <Style>None</Style>
-                            </Border>
-                            <TopBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1.25pt</Width>
-                            </TopBorder>
-                            <BottomBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1pt</Width>
-                            </BottomBorder>
-                            <LeftBorder>
-                              <Color>#e5e5e5</Color>
-                              <Style>Solid</Style>
-                              <Width>0.5pt</Width>
-                            </LeftBorder>
-                            <BackgroundColor>#fafafa</BackgroundColor>
-                            <PaddingLeft>2pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
-                          </Style>
-                        </Textbox>
-                      </CellContents>
-                    </TablixCell>
-                    <TablixCell>
-                      <CellContents>
-                        <Textbox Name="Textbox89">
-                          <CanGrow>true</CanGrow>
-                          <KeepTogether>true</KeepTogether>
-                          <Paragraphs>
-                            <Paragraph>
-                              <TextRuns>
-                                <TextRun>
-                                  <Value>=Sum(Fields!RequieredR.Value)</Value>
-                                  <Style>
-                                    <FontFamily>Tahoma</FontFamily>
-                                    <Color>#4d4d4d</Color>
-                                  </Style>
-                                </TextRun>
-                              </TextRuns>
-                              <Style>
-                                <TextAlign>Center</TextAlign>
-                              </Style>
-                            </Paragraph>
-                          </Paragraphs>
-                          <rd:DefaultName>Textbox78</rd:DefaultName>
-                          <Style>
-                            <Border>
-                              <Color>#4e648a</Color>
-                              <Style>None</Style>
-                            </Border>
-                            <TopBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1.25pt</Width>
-                            </TopBorder>
-                            <BottomBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1pt</Width>
-                            </BottomBorder>
-                            <BackgroundColor>#fafafa</BackgroundColor>
-                            <PaddingLeft>2pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
-                          </Style>
-                        </Textbox>
-                      </CellContents>
-                    </TablixCell>
-                    <TablixCell>
-                      <CellContents>
-                        <Textbox Name="Textbox90">
-                          <CanGrow>true</CanGrow>
-                          <KeepTogether>true</KeepTogether>
-                          <Paragraphs>
-                            <Paragraph>
-                              <TextRuns>
-                                <TextRun>
-                                  <Value>=Sum(Fields!ResponsedR.Value)</Value>
-                                  <Style>
-                                    <FontFamily>Tahoma</FontFamily>
-                                    <Color>#4d4d4d</Color>
-                                  </Style>
-                                </TextRun>
-                              </TextRuns>
-                              <Style>
-                                <TextAlign>Center</TextAlign>
-                              </Style>
-                            </Paragraph>
-                          </Paragraphs>
-                          <rd:DefaultName>Textbox79</rd:DefaultName>
-                          <Style>
-                            <Border>
-                              <Color>#4e648a</Color>
-                              <Style>None</Style>
-                            </Border>
-                            <TopBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1.25pt</Width>
-                            </TopBorder>
-                            <BottomBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1pt</Width>
-                            </BottomBorder>
-                            <BackgroundColor>#fafafa</BackgroundColor>
-                            <PaddingLeft>2pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
-                          </Style>
-                        </Textbox>
-                      </CellContents>
-                    </TablixCell>
-                    <TablixCell>
-                      <CellContents>
-                        <Textbox Name="Textbox91">
-                          <CanGrow>true</CanGrow>
-                          <KeepTogether>true</KeepTogether>
-                          <Paragraphs>
-                            <Paragraph>
-                              <TextRuns>
-                                <TextRun>
-                                  <Value>=IIF(IsNothing(Fields!PackageIdR.Value) = false, SUM(Fields!TotalMessageN.Value), 0)</Value>
-                                  <Style>
-                                    <FontFamily>Tahoma</FontFamily>
-                                    <FontWeight>Bold</FontWeight>
-                                    <Color>#4d4d4d</Color>
-                                  </Style>
-                                </TextRun>
-                              </TextRuns>
-                              <Style>
-                                <TextAlign>Center</TextAlign>
-                              </Style>
-                            </Paragraph>
-                          </Paragraphs>
-                          <rd:DefaultName>Textbox80</rd:DefaultName>
-                          <Style>
-                            <Border>
-                              <Color>#4e648a</Color>
-                              <Style>None</Style>
-                            </Border>
-                            <TopBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1.25pt</Width>
-                            </TopBorder>
-                            <BottomBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1pt</Width>
-                            </BottomBorder>
-                            <LeftBorder>
-                              <Color>#e5e5e5</Color>
-                              <Style>Solid</Style>
-                              <Width>0.5pt</Width>
-                            </LeftBorder>
-                            <BackgroundColor>#fafafa</BackgroundColor>
-                            <PaddingLeft>2pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
-                          </Style>
-                        </Textbox>
-                      </CellContents>
-                    </TablixCell>
-                    <TablixCell>
-                      <CellContents>
-                        <Textbox Name="Textbox92">
-                          <CanGrow>true</CanGrow>
-                          <KeepTogether>true</KeepTogether>
-                          <Paragraphs>
-                            <Paragraph>
-                              <TextRuns>
-                                <TextRun>
-                                  <Value>=Sum(Fields!RequieredN.Value)</Value>
-                                  <Style>
-                                    <FontFamily>Tahoma</FontFamily>
-                                    <Color>#4d4d4d</Color>
-                                  </Style>
-                                </TextRun>
-                              </TextRuns>
-                              <Style>
-                                <TextAlign>Center</TextAlign>
-                              </Style>
-                            </Paragraph>
-                          </Paragraphs>
-                          <rd:DefaultName>Textbox81</rd:DefaultName>
-                          <Style>
-                            <Border>
-                              <Color>#4e648a</Color>
-                              <Style>None</Style>
-                            </Border>
-                            <TopBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1.25pt</Width>
-                            </TopBorder>
-                            <BottomBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1pt</Width>
-                            </BottomBorder>
-                            <BackgroundColor>#fafafa</BackgroundColor>
-                            <PaddingLeft>2pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
-                          </Style>
-                        </Textbox>
-                      </CellContents>
-                    </TablixCell>
-                    <TablixCell>
-                      <CellContents>
-                        <Textbox Name="Textbox93">
-                          <CanGrow>true</CanGrow>
-                          <KeepTogether>true</KeepTogether>
-                          <Paragraphs>
-                            <Paragraph>
-                              <TextRuns>
-                                <TextRun>
-                                  <Value>=Sum(Fields!ResponsedN.Value)</Value>
-                                  <Style>
-                                    <FontFamily>Tahoma</FontFamily>
-                                    <Color>#4d4d4d</Color>
-                                  </Style>
-                                </TextRun>
-                              </TextRuns>
-                              <Style>
-                                <TextAlign>Center</TextAlign>
-                              </Style>
-                            </Paragraph>
-                          </Paragraphs>
-                          <rd:DefaultName>Textbox82</rd:DefaultName>
-                          <Style>
-                            <Border>
-                              <Color>#4e648a</Color>
-                              <Style>None</Style>
-                            </Border>
-                            <TopBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1.25pt</Width>
-                            </TopBorder>
-                            <BottomBorder>
-                              <Color>#4e648a</Color>
-                              <Style>Solid</Style>
-                              <Width>1pt</Width>
-                            </BottomBorder>
-                            <BackgroundColor>#fafafa</BackgroundColor>
-                            <PaddingLeft>2pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
-                          </Style>
-                        </Textbox>
-                      </CellContents>
-                    </TablixCell>
-                  </TablixCells>
-                </TablixRow>
                 <TablixRow>
                   <Height>6mm</Height>
                   <TablixCells>
@@ -1652,7 +1201,57 @@ ORDER BY Name ASC
                         </CellContents>
                       </TablixHeader>
                       <TablixMembers>
-                        <TablixMember />
+                        <TablixMember>
+                          <TablixHeader>
+                            <Size>6mm</Size>
+                            <CellContents>
+                              <Textbox Name="MemberName5">
+                                <CanGrow>true</CanGrow>
+                                <KeepTogether>true</KeepTogether>
+                                <Paragraphs>
+                                  <Paragraph>
+                                    <TextRuns>
+                                      <TextRun>
+                                        <Value>=Lookup(Parameters!Member.Value, Fields!GUID.Value, Fields!Name.Value, "Members")</Value>
+                                        <Style>
+                                          <FontFamily>Tahoma</FontFamily>
+                                          <FontWeight>Bold</FontWeight>
+                                          <Color>#4d4d4d</Color>
+                                        </Style>
+                                      </TextRun>
+                                    </TextRuns>
+                                    <Style />
+                                  </Paragraph>
+                                </Paragraphs>
+                                <rd:DefaultName>MemberName</rd:DefaultName>
+                                <Style>
+                                  <Border>
+                                    <Color>#4e648a</Color>
+                                    <Style>None</Style>
+                                  </Border>
+                                  <TopBorder>
+                                    <Color>#4e648a</Color>
+                                    <Style>Solid</Style>
+                                    <Width>1.25pt</Width>
+                                  </TopBorder>
+                                  <BottomBorder>
+                                    <Color>#4e648a</Color>
+                                    <Style>Solid</Style>
+                                    <Width>1pt</Width>
+                                  </BottomBorder>
+                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <PaddingLeft>2pt</PaddingLeft>
+                                  <PaddingRight>2pt</PaddingRight>
+                                  <PaddingTop>2pt</PaddingTop>
+                                  <PaddingBottom>2pt</PaddingBottom>
+                                </Style>
+                              </Textbox>
+                            </CellContents>
+                          </TablixHeader>
+                          <TablixMembers>
+                            <TablixMember />
+                          </TablixMembers>
+                        </TablixMember>
                       </TablixMembers>
                     </TablixMember>
                   </TablixMembers>
@@ -1762,6 +1361,64 @@ ORDER BY Name ASC
                           </Textbox>
                         </CellContents>
                       </TablixHeader>
+                      <TablixMembers>
+                        <TablixMember>
+                          <TablixHeader>
+                            <Size>6mm</Size>
+                            <CellContents>
+                              <Textbox Name="Textbox3">
+                                <CanGrow>true</CanGrow>
+                                <KeepTogether>true</KeepTogether>
+                                <Paragraphs>
+                                  <Paragraph>
+                                    <TextRuns>
+                                      <TextRun>
+                                        <Value />
+                                        <Style>
+                                          <FontFamily>Tahoma</FontFamily>
+                                          <FontSize>11pt</FontSize>
+                                          <FontWeight>Bold</FontWeight>
+                                          <Color>Gray</Color>
+                                        </Style>
+                                      </TextRun>
+                                    </TextRuns>
+                                    <Style>
+                                      <TextAlign>Center</TextAlign>
+                                    </Style>
+                                  </Paragraph>
+                                </Paragraphs>
+                                <rd:DefaultName>Textbox3</rd:DefaultName>
+                                <Style>
+                                  <Border>
+                                    <Color>#4e648a</Color>
+                                    <Style>Solid</Style>
+                                  </Border>
+                                  <TopBorder>
+                                    <Color>#4e648a</Color>
+                                    <Width>1pt</Width>
+                                  </TopBorder>
+                                  <BottomBorder>
+                                    <Color>#4e648a</Color>
+                                    <Width>1.25pt</Width>
+                                  </BottomBorder>
+                                  <LeftBorder>
+                                    <Color>White</Color>
+                                  </LeftBorder>
+                                  <RightBorder>
+                                    <Color>White</Color>
+                                  </RightBorder>
+                                  <BackgroundColor>White</BackgroundColor>
+                                  <VerticalAlign>Middle</VerticalAlign>
+                                  <PaddingLeft>2pt</PaddingLeft>
+                                  <PaddingRight>2pt</PaddingRight>
+                                  <PaddingTop>2pt</PaddingTop>
+                                  <PaddingBottom>2pt</PaddingBottom>
+                                </Style>
+                              </Textbox>
+                            </CellContents>
+                          </TablixHeader>
+                        </TablixMember>
+                      </TablixMembers>
                     </TablixMember>
                   </TablixMembers>
                 </TablixMember>
@@ -1820,6 +1477,63 @@ ORDER BY Name ASC
                       </Textbox>
                     </CellContents>
                   </TablixHeader>
+                  <TablixMembers>
+                    <TablixMember>
+                      <TablixHeader>
+                        <Size>6mm</Size>
+                        <CellContents>
+                          <Textbox Name="Textbox86">
+                            <CanGrow>true</CanGrow>
+                            <KeepTogether>true</KeepTogether>
+                            <Paragraphs>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>=IIF((Sum(Fields!RequieredN.Value) = 0 And Sum(Fields!RequieredR.Value) = 0), "-", Cstr(Round(100 * (Sum(Fields!ResponsedR.Value) / IIF(Sum(Fields!RequieredR.Value) = 0, 1, Sum(Fields!RequieredR.Value)) + Sum(Fields!ResponsedN.Value) / IIF(Sum(Fields!RequieredN.Value) = 0, 1, Sum(Fields!RequieredN.Value))) / 2, 2)) + " %")</Value>
+                                    <Style>
+                                      <FontStyle>Italic</FontStyle>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <FontWeight>Bold</FontWeight>
+                                      <Color>#4d4d4d</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style>
+                                  <TextAlign>Center</TextAlign>
+                                </Style>
+                              </Paragraph>
+                            </Paragraphs>
+                            <rd:DefaultName>Textbox76</rd:DefaultName>
+                            <Style>
+                              <Border>
+                                <Color>#4e648a</Color>
+                                <Style>None</Style>
+                              </Border>
+                              <TopBorder>
+                                <Style>Solid</Style>
+                                <Width>1.25pt</Width>
+                              </TopBorder>
+                              <BottomBorder>
+                                <Color>#4e648a</Color>
+                                <Style>Solid</Style>
+                                <Width>1pt</Width>
+                              </BottomBorder>
+                              <RightBorder>
+                                <Color>#e5e5e5</Color>
+                                <Style>Solid</Style>
+                                <Width>0.5pt</Width>
+                              </RightBorder>
+                              <BackgroundColor>#fafafa</BackgroundColor>
+                              <PaddingLeft>2pt</PaddingLeft>
+                              <PaddingRight>2pt</PaddingRight>
+                              <PaddingTop>2pt</PaddingTop>
+                              <PaddingBottom>2pt</PaddingBottom>
+                            </Style>
+                          </Textbox>
+                        </CellContents>
+                      </TablixHeader>
+                    </TablixMember>
+                  </TablixMembers>
                 </TablixMember>
                 <TablixMember>
                   <TablixHeader>
@@ -1891,9 +1605,9 @@ ORDER BY Name ASC
                                   <TextRun>
                                     <Value>Всего ЭС</Value>
                                     <Style>
+                                      <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <FontWeight>Bold</FontWeight>
                                       <Color>Gray</Color>
                                     </Style>
                                   </TextRun>
@@ -1935,7 +1649,62 @@ ORDER BY Name ASC
                         </CellContents>
                       </TablixHeader>
                       <TablixMembers>
-                        <TablixMember />
+                        <TablixMember>
+                          <TablixHeader>
+                            <Size>6mm</Size>
+                            <CellContents>
+                              <Textbox Name="Textbox94">
+                                <CanGrow>true</CanGrow>
+                                <KeepTogether>true</KeepTogether>
+                                <Paragraphs>
+                                  <Paragraph>
+                                    <TextRuns>
+                                      <TextRun>
+                                        <Value>=IIF(IsNothing(Sum(Fields!TotalMessageR.Value)) = FALSE, Sum(Fields!TotalMessageR.Value), "-")</Value>
+                                        <Style>
+                                          <FontStyle>Italic</FontStyle>
+                                          <FontFamily>Tahoma</FontFamily>
+                                          <Format>#,0;-#,0;'-'</Format>
+                                          <Color>#4d4d4d</Color>
+                                        </Style>
+                                      </TextRun>
+                                    </TextRuns>
+                                    <Style>
+                                      <TextAlign>Center</TextAlign>
+                                    </Style>
+                                  </Paragraph>
+                                </Paragraphs>
+                                <rd:DefaultName>Textbox77</rd:DefaultName>
+                                <Style>
+                                  <Border>
+                                    <Color>#4e648a</Color>
+                                    <Style>None</Style>
+                                  </Border>
+                                  <TopBorder>
+                                    <Style>Solid</Style>
+                                    <Width>1.25pt</Width>
+                                  </TopBorder>
+                                  <BottomBorder>
+                                    <Style>Solid</Style>
+                                  </BottomBorder>
+                                  <LeftBorder>
+                                    <Color>#e5e5e5</Color>
+                                    <Style>Solid</Style>
+                                    <Width>0.5pt</Width>
+                                  </LeftBorder>
+                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <PaddingLeft>2pt</PaddingLeft>
+                                  <PaddingRight>2pt</PaddingRight>
+                                  <PaddingTop>2pt</PaddingTop>
+                                  <PaddingBottom>2pt</PaddingBottom>
+                                </Style>
+                              </Textbox>
+                            </CellContents>
+                          </TablixHeader>
+                          <TablixMembers>
+                            <TablixMember />
+                          </TablixMembers>
+                        </TablixMember>
                       </TablixMembers>
                     </TablixMember>
                     <TablixMember>
@@ -1993,7 +1762,56 @@ ORDER BY Name ASC
                         </CellContents>
                       </TablixHeader>
                       <TablixMembers>
-                        <TablixMember />
+                        <TablixMember>
+                          <TablixHeader>
+                            <Size>6mm</Size>
+                            <CellContents>
+                              <Textbox Name="Textbox95">
+                                <CanGrow>true</CanGrow>
+                                <KeepTogether>true</KeepTogether>
+                                <Paragraphs>
+                                  <Paragraph>
+                                    <TextRuns>
+                                      <TextRun>
+                                        <Value>=IIF(IsNothing(Sum(Fields!RequieredR.Value)) = FALSE, Sum(Fields!RequieredR.Value), "-")</Value>
+                                        <Style>
+                                          <FontFamily>Tahoma</FontFamily>
+                                          <Format>#,0</Format>
+                                          <Color>#4d4d4d</Color>
+                                        </Style>
+                                      </TextRun>
+                                    </TextRuns>
+                                    <Style>
+                                      <TextAlign>Center</TextAlign>
+                                    </Style>
+                                  </Paragraph>
+                                </Paragraphs>
+                                <rd:DefaultName>Textbox78</rd:DefaultName>
+                                <Style>
+                                  <Border>
+                                    <Color>#4e648a</Color>
+                                    <Style>None</Style>
+                                  </Border>
+                                  <TopBorder>
+                                    <Style>Solid</Style>
+                                    <Width>1.25pt</Width>
+                                  </TopBorder>
+                                  <BottomBorder>
+                                    <Style>Solid</Style>
+                                  </BottomBorder>
+                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <PaddingLeft>2pt</PaddingLeft>
+                                  <PaddingRight>2pt</PaddingRight>
+                                  <PaddingTop>2pt</PaddingTop>
+                                  <PaddingBottom>2pt</PaddingBottom>
+                                </Style>
+                              </Textbox>
+                            </CellContents>
+                          </TablixHeader>
+                          <TablixMembers>
+                            <TablixMember />
+                          </TablixMembers>
+                        </TablixMember>
                       </TablixMembers>
                     </TablixMember>
                     <TablixMember>
@@ -2051,7 +1869,59 @@ ORDER BY Name ASC
                         </CellContents>
                       </TablixHeader>
                       <TablixMembers>
-                        <TablixMember />
+                        <TablixMember>
+                          <TablixHeader>
+                            <Size>6mm</Size>
+                            <CellContents>
+                              <Textbox Name="Textbox96">
+                                <CanGrow>true</CanGrow>
+                                <KeepTogether>true</KeepTogether>
+                                <Paragraphs>
+                                  <Paragraph>
+                                    <TextRuns>
+                                      <TextRun>
+                                        <Value>=IIF(IsNothing(Sum(Fields!ResponsedR.Value)) = FALSE, Sum(Fields!ResponsedR.Value), "-")</Value>
+                                        <Style>
+                                          <FontFamily>Tahoma</FontFamily>
+                                          <Format>#,0</Format>
+                                          <Color>#4d4d4d</Color>
+                                        </Style>
+                                      </TextRun>
+                                    </TextRuns>
+                                    <Style>
+                                      <TextAlign>Center</TextAlign>
+                                    </Style>
+                                  </Paragraph>
+                                </Paragraphs>
+                                <rd:DefaultName>Textbox79</rd:DefaultName>
+                                <Style>
+                                  <Border>
+                                    <Color>#4e648a</Color>
+                                    <Style>None</Style>
+                                  </Border>
+                                  <TopBorder>
+                                    <Color>#4e648a</Color>
+                                    <Style>Solid</Style>
+                                    <Width>1.25pt</Width>
+                                  </TopBorder>
+                                  <BottomBorder>
+                                    <Color>#4e648a</Color>
+                                    <Style>Solid</Style>
+                                    <Width>1pt</Width>
+                                  </BottomBorder>
+                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <PaddingLeft>2pt</PaddingLeft>
+                                  <PaddingRight>2pt</PaddingRight>
+                                  <PaddingTop>2pt</PaddingTop>
+                                  <PaddingBottom>2pt</PaddingBottom>
+                                </Style>
+                              </Textbox>
+                            </CellContents>
+                          </TablixHeader>
+                          <TablixMembers>
+                            <TablixMember />
+                          </TablixMembers>
+                        </TablixMember>
                       </TablixMembers>
                     </TablixMember>
                   </TablixMembers>
@@ -2126,9 +1996,9 @@ ORDER BY Name ASC
                                   <TextRun>
                                     <Value>Всего ЭС</Value>
                                     <Style>
+                                      <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <FontWeight>Bold</FontWeight>
                                       <Color>Gray</Color>
                                     </Style>
                                   </TextRun>
@@ -2170,7 +2040,62 @@ ORDER BY Name ASC
                         </CellContents>
                       </TablixHeader>
                       <TablixMembers>
-                        <TablixMember />
+                        <TablixMember>
+                          <TablixHeader>
+                            <Size>6mm</Size>
+                            <CellContents>
+                              <Textbox Name="Textbox97">
+                                <CanGrow>true</CanGrow>
+                                <KeepTogether>true</KeepTogether>
+                                <Paragraphs>
+                                  <Paragraph>
+                                    <TextRuns>
+                                      <TextRun>
+                                        <Value>=IIF(IsNothing(Sum(Fields!TotalMessageN.Value)) = False, Sum(Fields!TotalMessageN.Value), "-")</Value>
+                                        <Style>
+                                          <FontStyle>Italic</FontStyle>
+                                          <FontFamily>Tahoma</FontFamily>
+                                          <Format>#,0;-#,0;'-'</Format>
+                                          <Color>#4d4d4d</Color>
+                                        </Style>
+                                      </TextRun>
+                                    </TextRuns>
+                                    <Style>
+                                      <TextAlign>Center</TextAlign>
+                                    </Style>
+                                  </Paragraph>
+                                </Paragraphs>
+                                <rd:DefaultName>Textbox77</rd:DefaultName>
+                                <Style>
+                                  <Border>
+                                    <Color>#4e648a</Color>
+                                    <Style>None</Style>
+                                  </Border>
+                                  <TopBorder>
+                                    <Style>Solid</Style>
+                                    <Width>1.25pt</Width>
+                                  </TopBorder>
+                                  <BottomBorder>
+                                    <Style>Solid</Style>
+                                  </BottomBorder>
+                                  <LeftBorder>
+                                    <Color>#e5e5e5</Color>
+                                    <Style>Solid</Style>
+                                    <Width>0.5pt</Width>
+                                  </LeftBorder>
+                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <PaddingLeft>2pt</PaddingLeft>
+                                  <PaddingRight>2pt</PaddingRight>
+                                  <PaddingTop>2pt</PaddingTop>
+                                  <PaddingBottom>2pt</PaddingBottom>
+                                </Style>
+                              </Textbox>
+                            </CellContents>
+                          </TablixHeader>
+                          <TablixMembers>
+                            <TablixMember />
+                          </TablixMembers>
+                        </TablixMember>
                       </TablixMembers>
                     </TablixMember>
                     <TablixMember>
@@ -2228,7 +2153,56 @@ ORDER BY Name ASC
                         </CellContents>
                       </TablixHeader>
                       <TablixMembers>
-                        <TablixMember />
+                        <TablixMember>
+                          <TablixHeader>
+                            <Size>6mm</Size>
+                            <CellContents>
+                              <Textbox Name="Textbox98">
+                                <CanGrow>true</CanGrow>
+                                <KeepTogether>true</KeepTogether>
+                                <Paragraphs>
+                                  <Paragraph>
+                                    <TextRuns>
+                                      <TextRun>
+                                        <Value>=IIF(IsNothing(Sum(Fields!RequieredN.Value)) = False, Sum(Fields!RequieredN.Value), "-")</Value>
+                                        <Style>
+                                          <FontFamily>Tahoma</FontFamily>
+                                          <Format>#,0</Format>
+                                          <Color>#4d4d4d</Color>
+                                        </Style>
+                                      </TextRun>
+                                    </TextRuns>
+                                    <Style>
+                                      <TextAlign>Center</TextAlign>
+                                    </Style>
+                                  </Paragraph>
+                                </Paragraphs>
+                                <rd:DefaultName>Textbox78</rd:DefaultName>
+                                <Style>
+                                  <Border>
+                                    <Color>#4e648a</Color>
+                                    <Style>None</Style>
+                                  </Border>
+                                  <TopBorder>
+                                    <Style>Solid</Style>
+                                    <Width>1.25pt</Width>
+                                  </TopBorder>
+                                  <BottomBorder>
+                                    <Style>Solid</Style>
+                                  </BottomBorder>
+                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <PaddingLeft>2pt</PaddingLeft>
+                                  <PaddingRight>2pt</PaddingRight>
+                                  <PaddingTop>2pt</PaddingTop>
+                                  <PaddingBottom>2pt</PaddingBottom>
+                                </Style>
+                              </Textbox>
+                            </CellContents>
+                          </TablixHeader>
+                          <TablixMembers>
+                            <TablixMember />
+                          </TablixMembers>
+                        </TablixMember>
                       </TablixMembers>
                     </TablixMember>
                     <TablixMember>
@@ -2286,45 +2260,55 @@ ORDER BY Name ASC
                         </CellContents>
                       </TablixHeader>
                       <TablixMembers>
-                        <TablixMember />
-                      </TablixMembers>
-                    </TablixMember>
-                  </TablixMembers>
-                </TablixMember>
-              </TablixMembers>
-            </TablixColumnHierarchy>
-            <TablixRowHierarchy>
-              <TablixMembers>
-                <TablixMember>
-                  <Group Name="MemberResponseMessagerR1">
-                    <GroupExpressions>
-                      <GroupExpression>=Fields!MemberResponseMessagerR.Value</GroupExpression>
-                    </GroupExpressions>
-                  </Group>
-                  <SortExpressions>
-                    <SortExpression>
-                      <Value>=IIF(IsNothing(Fields!PackageIdR.Value) = false, (SUM(Fields!ResponsedR.Value)/IIF(SUM(Fields!RequieredR.Value)=0, 1, SUM(Fields!RequieredR.Value))+ SUM(Fields!ResponsedN.Value)/IIF(SUM(Fields!RequieredN.Value) = 0,1, SUM(Fields!RequieredN.Value)))/2, -1)</Value>
-                      <Direction>Descending</Direction>
-                    </SortExpression>
-                    <SortExpression>
-                      <Value>=Fields!MemberResponseMessagerR.Value</Value>
-                    </SortExpression>
-                  </SortExpressions>
-                  <TablixMembers>
-                    <TablixMember />
-                    <TablixMember>
-                      <TablixMembers>
                         <TablixMember>
-                          <Group Name="PackageIdR">
-                            <GroupExpressions>
-                              <GroupExpression>=Fields!PackageIdR.Value</GroupExpression>
-                            </GroupExpressions>
-                          </Group>
-                          <SortExpressions>
-                            <SortExpression>
-                              <Value>=Fields!PackageIdR.Value</Value>
-                            </SortExpression>
-                          </SortExpressions>
+                          <TablixHeader>
+                            <Size>6mm</Size>
+                            <CellContents>
+                              <Textbox Name="Textbox99">
+                                <CanGrow>true</CanGrow>
+                                <KeepTogether>true</KeepTogether>
+                                <Paragraphs>
+                                  <Paragraph>
+                                    <TextRuns>
+                                      <TextRun>
+                                        <Value>=IIF(IsNothing(Sum(Fields!ResponsedN.Value)) = False, Sum(Fields!ResponsedN.Value), "-")</Value>
+                                        <Style>
+                                          <FontFamily>Tahoma</FontFamily>
+                                          <Format>#,0</Format>
+                                          <Color>#4d4d4d</Color>
+                                        </Style>
+                                      </TextRun>
+                                    </TextRuns>
+                                    <Style>
+                                      <TextAlign>Center</TextAlign>
+                                    </Style>
+                                  </Paragraph>
+                                </Paragraphs>
+                                <rd:DefaultName>Textbox79</rd:DefaultName>
+                                <Style>
+                                  <Border>
+                                    <Color>#4e648a</Color>
+                                    <Style>None</Style>
+                                  </Border>
+                                  <TopBorder>
+                                    <Color>#4e648a</Color>
+                                    <Style>Solid</Style>
+                                    <Width>1.25pt</Width>
+                                  </TopBorder>
+                                  <BottomBorder>
+                                    <Color>#4e648a</Color>
+                                    <Style>Solid</Style>
+                                    <Width>1pt</Width>
+                                  </BottomBorder>
+                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <PaddingLeft>2pt</PaddingLeft>
+                                  <PaddingRight>2pt</PaddingRight>
+                                  <PaddingTop>2pt</PaddingTop>
+                                  <PaddingBottom>2pt</PaddingBottom>
+                                </Style>
+                              </Textbox>
+                            </CellContents>
+                          </TablixHeader>
                           <TablixMembers>
                             <TablixMember />
                           </TablixMembers>
@@ -2334,14 +2318,37 @@ ORDER BY Name ASC
                   </TablixMembers>
                 </TablixMember>
               </TablixMembers>
+            </TablixColumnHierarchy>
+            <TablixRowHierarchy>
+              <TablixMembers>
+                <TablixMember>
+                  <TablixMembers>
+                    <TablixMember>
+                      <Group Name="PackageIdR">
+                        <GroupExpressions>
+                          <GroupExpression>=Fields!PackageIdR.Value</GroupExpression>
+                        </GroupExpressions>
+                      </Group>
+                      <SortExpressions>
+                        <SortExpression>
+                          <Value>=Fields!PackageIdR.Value</Value>
+                        </SortExpression>
+                      </SortExpressions>
+                      <TablixMembers>
+                        <TablixMember />
+                      </TablixMembers>
+                    </TablixMember>
+                  </TablixMembers>
+                </TablixMember>
+              </TablixMembers>
             </TablixRowHierarchy>
             <RepeatColumnHeaders>true</RepeatColumnHeaders>
             <FixedColumnHeaders>true</FixedColumnHeaders>
             <DataSetName>Report1</DataSetName>
-            <Top>32.17333mm</Top>
-            <Left>1.36251mm</Left>
+            <Top>23.21833mm</Top>
+            <Left>0.00001mm</Left>
             <Height>23.57667mm</Height>
-            <Width>287.19769mm</Width>
+            <Width>287.78604mm</Width>
             <ZIndex>6</ZIndex>
             <Style>
               <Border>
@@ -2366,8 +2373,8 @@ ORDER BY Name ASC
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox59</rd:DefaultName>
-            <Top>26.87889mm</Top>
-            <Left>1.36251mm</Left>
+            <Top>17.21834mm</Top>
+            <Left>0mm</Left>
             <Height>5.29444mm</Height>
             <Width>30.02708mm</Width>
             <ZIndex>7</ZIndex>
@@ -2388,7 +2395,7 @@ ORDER BY Name ASC
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Parameters!Member.Value</Value>
+                    <Value>=Lookup(Parameters!Member.Value, Fields!GUID.Value, Fields!Name.Value, "Members")</Value>
                     <Style />
                   </TextRun>
                 </TextRuns>
@@ -2398,10 +2405,10 @@ ORDER BY Name ASC
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>27.02278mm</Top>
-            <Left>31.38959mm</Left>
-            <Height>6mm</Height>
-            <Width>155.77145mm</Width>
+            <Top>17.21834mm</Top>
+            <Left>30.02708mm</Left>
+            <Height>5.29444mm</Height>
+            <Width>107.75897mm</Width>
             <ZIndex>8</ZIndex>
             <Style>
               <Border>
@@ -2414,17 +2421,17 @@ ORDER BY Name ASC
             </Style>
           </Textbox>
         </ReportItems>
-        <Height>58.77458mm</Height>
+        <Height>46.795mm</Height>
         <Style>
           <Border>
             <Style>None</Style>
           </Border>
         </Style>
       </Body>
-      <Width>302.94373mm</Width>
+      <Width>287.78605mm</Width>
       <Page>
         <PageFooter>
-          <Height>9.525mm</Height>
+          <Height>7.76389mm</Height>
           <PrintOnFirstPage>true</PrintOnFirstPage>
           <PrintOnLastPage>true</PrintOnLastPage>
           <ReportItems>
@@ -2446,9 +2453,9 @@ ORDER BY Name ASC
               </Paragraphs>
               <rd:DefaultName>ExecutionTime</rd:DefaultName>
               <Top>1.76389mm</Top>
-              <Left>237.7602mm</Left>
-              <Height>6.35mm</Height>
-              <Width>50.8mm</Width>
+              <Left>238.26992mm</Left>
+              <Height>6mm</Height>
+              <Width>49.51613mm</Width>
               <Style>
                 <Border>
                   <Style>None</Style>
@@ -2477,7 +2484,7 @@ ORDER BY Name ASC
               </Paragraphs>
               <rd:DefaultName>Textbox87</rd:DefaultName>
               <Top>1.76389mm</Top>
-              <Left>209.93604mm</Left>
+              <Left>210.79854mm</Left>
               <Height>6mm</Height>
               <Width>27.47138mm</Width>
               <ZIndex>1</ZIndex>
@@ -2512,7 +2519,7 @@ ORDER BY Name ASC
     </ReportSection>
   </ReportSections>
   <ReportParameters>
-    <ReportParameter Name="DataStart">
+    <ReportParameter Name="DateStart">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>
@@ -2521,7 +2528,7 @@ ORDER BY Name ASC
       </DefaultValue>
       <Prompt>Дата начала</Prompt>
     </ReportParameter>
-    <ReportParameter Name="DataEnd">
+    <ReportParameter Name="DateEnd">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>
@@ -2532,11 +2539,11 @@ ORDER BY Name ASC
     </ReportParameter>
     <ReportParameter Name="Member">
       <DataType>String</DataType>
-      <Prompt>Member</Prompt>
+      <Prompt>Участник</Prompt>
       <ValidValues>
         <DataSetReference>
           <DataSetName>Members</DataSetName>
-          <ValueField>Name</ValueField>
+          <ValueField>GUID</ValueField>
           <LabelField>Name</LabelField>
         </DataSetReference>
       </ValidValues>

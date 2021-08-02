@@ -523,7 +523,7 @@ WHERE Member.Active = 1
             <DataSetName>DataSet1</DataSetName>
             <Top>1.19239cm</Top>
             <Height>1.84823cm</Height>
-            <Width>21.14176cm</Width>
+            <Width>21.14177cm</Width>
             <ZIndex>1</ZIndex>
             <Style>
               <Border>
@@ -532,14 +532,14 @@ WHERE Member.Active = 1
             </Style>
           </Tablix>
         </ReportItems>
-        <Height>30.40619mm</Height>
+        <Height>30.4062mm</Height>
         <Style>
           <Border>
             <Style>None</Style>
           </Border>
         </Style>
       </Body>
-      <Width>211.41764mm</Width>
+      <Width>211.4177mm</Width>
       <Page>
         <PageFooter>
           <Height>7.40833mm</Height>
@@ -572,6 +572,7 @@ WHERE Member.Active = 1
                 <Border>
                   <Style>None</Style>
                 </Border>
+                <PaddingLeft>2pt</PaddingLeft>
                 <PaddingRight>2pt</PaddingRight>
                 <PaddingTop>2pt</PaddingTop>
                 <PaddingBottom>2pt</PaddingBottom>

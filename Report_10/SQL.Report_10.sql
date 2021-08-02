@@ -1,17 +1,21 @@
---DECLARE @DataStart DateTime2
---DECLARE @DataEnd DateTime2
---SET @DataStart = '2021-03-01'
---SET @DataEnd = '2021-04-01'
+---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-06-01'
+-------------------------------------------------------------------
 
-if object_id('tempdb..#tmp') is not null
+IF object_id('tempdb..#tmp') is not null
 	DROP TABLE #tmp
-if object_id('tempdb..#tmp2') is not null
+IF object_id('tempdb..#tmp2') is not null
 	DROP TABLE #tmp2
 
-CREATE TABLE #tmp (
+CREATE TABLE #tmp ( --оценка переписок с рангом
 	Rank INT
-	,SenderGuid nvarchar(255)
-	,RecipientGuid nvarchar(255)
+	,SenderGuid char(36)
+	,SenderName nvarchar(255)
+	,RecipientGuid char(36)
+	,RecipientName nvarchar(255)
 	,CountNewVersionED INT
 	,CountActiveCommunications INT
 	,ALLCountNewVersionED INT
@@ -21,41 +25,47 @@ INSERT INTO #tmp
 	SELECT 	--оценка переписок с рангом
 		DENSE_RANK() OVER (ORDER BY CountActiveCommunications DESC, ALLCountNewVersionED DESC, Member.Name ASC) AS Rank
 		,SenderGuid
+		,SenderName
 		,RecipientGuid
+		,RecipientName
 		,CountNewVersionED
 		,CountActiveCommunications
 		,ALLCountNewVersionED
 	FROM (
-		SELECT	--оценка переписок
+		SELECT	--ComunicationsScore = оценка переписок
 			CommunicationsControl.SenderGuid
+			,CommunicationsControl.SenderName
 			,CommunicationsControl.RecipientGuid
-			,IsNull(CommunicationsControl.CountNewVersionED, -1) AS CountNewVersionED --где переписки нет, там -1
+			,CommunicationsControl.RecipientName
+			,ISNULL(CommunicationsControl.CountNewVersionED, -1) AS CountNewVersionED --где переписки нет, там -1
 			,SUM(CommunicationsControl.CountNewVersionED) OVER (PARTITION BY CommunicationsControl.SenderGuid) AS ALLCountNewVersionED --сумма всех ЭД в формате 2.7.1 по участнику 
 			,SUM(IIF(CommunicationsControl.CountNewVersionED > 2, 1, 0)) OVER (PARTITION BY CommunicationsControl.SenderGuid) AS CountActiveCommunications --если в переписке есть более 2 ЭД 2.7.1, то +1 к активной переписке
-		FROM ( --CommunicationsControl = коммуникаций Sender и Recipient и кол-во версий 2.7.1 ЭД
+		FROM ( --CommunicationsControl = коммуникации Sender и Recipient и кол-во версий 2.7.1 ЭД
 			SELECT
 				AllCommunications.SenderGuid
+				,AllCommunications.SenderName
 				,AllCommunications.RecipientGuid
+				,AllCommunications.RecipientName
 				,NewVersionControl.CountNewVersionED
 			FROM ( --AllCommunications = Все возможные варианты коммуникаций Sender и Recipient
 				SELECT 
-					Member1.Name	AS Sender
-					,Member1.Guid	AS SenderGuid
-					,Member2.Name	AS Recipient 
+					Member1.Guid	AS SenderGuid
+					,Member1.Name	AS SenderName
 					,Member2.Guid	AS RecipientGuid 
+					,Member2.Name	AS RecipientName
 				FROM 
 					Member AS Member1
 				CROSS JOIN (
 					SELECT 
 						Member.Name
 						,Member.Guid
-						,Member.Active
 					FROM 
 						Member
+					WHERE
+						Member.Active = 1
 				) AS Member2
 				WHERE 
 					Member1.Active = 1
-					AND Member2.Active = 1
 			) AS AllCommunications
 			LEFT JOIN (
 				SELECT -- NewVersionControl = коммуникации MemberY и MemberX в период отчета по ЭД с указанием кол-ва версий 2.7.1 ЭД
@@ -72,8 +82,8 @@ INSERT INTO #tmp
 					INNER JOIN ValidationLog
 						ON ValidationLog.Id = ConfirmationControl.ValidatingLog
 					WHERE 	
-						ConfirmationControl.PackageDelivaredOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-						AND ConfirmationControl.PackageDelivaredOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
+						ConfirmationControl.PackageDelivaredOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+						AND ConfirmationControl.PackageDelivaredOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
 						AND(ConfirmationControl.MessageType = N'Транспортный контейнер' OR ConfirmationControl.MessageType = N'Документ')
 				) AS VersionControl
 				GROUP BY
@@ -82,10 +92,10 @@ INSERT INTO #tmp
 			) AS NewVersionControl
 				ON AllCommunications.SenderGuid = NewVersionControl.MemberY
 				AND AllCommunications.RecipientGuid = NewVersionControl.MemberX
-				) AS CommunicationsControl	
-	) AS A
+		) AS CommunicationsControl	
+	) AS ComunicationsScore
 	INNER JOIN Member
-		ON Member.Guid = A.SenderGuid
+		ON Member.Guid = ComunicationsScore.SenderGuid
 
 CREATE TABLE #tmp2 ( --чтобы сортировать столбец так же, как и строку
 	Rank INT
@@ -99,31 +109,17 @@ INSERT INTO #tmp2
 		,#tmp.SenderGuid
 	FROM #tmp
 
-SELECT
-	Report10.RankA
-	,MemberSender.Name AS Sender
-	,Report10.SenderGuid
-	,Report10.RankB 
-	,MemberRecipient.Name AS Recipient
-	,Report10.RecipientGuid
-	,Report10.CountNewVersionED
-	,Report10.CountActiveCommunications
-	,Report10.ALLCountNewVersionED	
-FROM (
-	SELECT 
-		A.Rank AS RankA
-		,A.SenderGuid
-		,B.Rank AS RankB
-		,A.RecipientGuid
-		,A.CountNewVersionED
-		,A.CountActiveCommunications
-		,A.ALLCountNewVersionED	
-	FROM #tmp AS A
-	INNER JOIN #tmp2 AS B
-		ON A.RecipientGuid = B.SenderGuid
-) AS Report10
-INNER JOIN Member AS MemberSender
-	ON MemberSender.Guid = Report10.SenderGuid COLLATE SQL_Latin1_General_CP1_CI_AS
-INNER JOIN Member AS MemberRecipient
-	ON MemberRecipient.Guid = Report10.RecipientGuid COLLATE SQL_Latin1_General_CP1_CI_AS
 
+SELECT 
+	A.Rank AS RankA
+	,A.SenderGuid
+	,A.SenderName
+	,B.Rank AS RankB
+	,A.RecipientGuid
+	,A.RecipientName
+	,A.CountNewVersionED
+	,A.CountActiveCommunications
+	,A.ALLCountNewVersionED	
+FROM #tmp AS A
+INNER JOIN #tmp2 AS B
+	ON A.RecipientGuid = B.SenderGuid

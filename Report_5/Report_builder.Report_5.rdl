@@ -17,20 +17,32 @@
       <Query>
         <DataSourceName>MedonomForm5</DataSourceName>
         <QueryParameters>
-          <QueryParameter Name="@DataStart">
-            <Value>=Parameters!DataStart.Value</Value>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
           </QueryParameter>
-          <QueryParameter Name="@DataEnd">
-            <Value>=Parameters!DataEnd.Value</Value>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
           </QueryParameter>
         </QueryParameters>
-        <CommandText>if object_id('tempdb..#tmp_ValidationLog') is not null
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-06-01'
+-------------------------------------------------------------------
+
+if object_id('tempdb..#tmp_ValidationLog') is not null
 	DROP TABLE #tmp_ValidationLog
 
-CREATE TABLE #tmp_ValidationLog (LogId BIGINT PRIMARY KEY, Incoming BIT, ReceivedOn DATETIME2(7)) --Таблица всех валидных последних логов
+CREATE TABLE #tmp_ValidationLog (
+								LogId BIGINT PRIMARY KEY
+								,Incoming BIT
+								,ReceivedOn DATETIME2(7)
+							) --Таблица всех валидных последних логов
+
 INSERT INTO #tmp_ValidationLog  
 	SELECT -- ActualLogs - Id последних валидных логов по каждому обработанному пакету в период отчета
-		ValidationLog.Id AS LogId
+		ValidationLog.Id		AS LogId
 		,SuccesPackage.Incoming
 		,SuccesPackage.ReceivedOn
 	FROM
@@ -66,9 +78,9 @@ INSERT INTO #tmp_ValidationLog
 SELECT
 	DENSE_RANK() OVER(
 		ORDER BY P1+P2+P3+P4+P5+MemberScoreP6.RatingP6+MemberScoreP7.RatingP7 DESC
-	  )as RankMember  --тут присваиваем позицию. Если очки у 1-ого и 2-ого участников одинаковы - то место одинаково. Если хоть по одной из групп критериев 0 очков или NULL - не попадает в общий рейтинг
-	,P1+P2+P3+P4+P5+MemberScoreP6.RatingP6+MemberScoreP7.RatingP7 AS Rating
-	,FormatScore.MemberName
+	  ) AS RankMember  --тут присваиваем позицию. Если очки у 1-ого и 2-ого участников одинаковы - то место одинаково. Если хоть по одной из групп критериев 0 очков или NULL - не попадает в общий рейтинг
+	,P1+P2+P3+P4+P5+MemberScoreP6.RatingP6+MemberScoreP7.RatingP7	AS Rating
+	,Member.Name
 	,countP1
 	,FormatScore.P1
 	,countP2
@@ -79,53 +91,53 @@ SELECT
 	,FormatScore.P4
 	,countP5
 	,FormatScore.P5
-	,MemberScoreP6.countMessP6 AS countP6 
-	,MemberScoreP6.RatingP6 AS P6
-	,MemberScoreP7.countMessP7 AS countP7
-	,MemberScoreP7.RatingP7 AS P7
+	,MemberScoreP6.countMessP6	AS countP6 
+	,MemberScoreP6.RatingP6		AS P6
+	,MemberScoreP7.countMessP7	AS countP7
+	,MemberScoreP7.RatingP7		AS P7
 FROM(
 
 	SELECT   -- Финальная таблица по простым форматным оценкам (п1-п5)
-		MemberName
+		MemberGuid 
 		,MAX([countP1]) AS countP1 
-		,MAX([P1]) AS P1			--Формат исходящего пакета
+		,MAX([P1])		AS P1			--Формат исходящего пакета
 		,MAX([countP2]) AS countP2
-		,MAX([P2]) AS P2			--Формат исходящего сообщения
+		,MAX([P2])		AS P2			--Формат исходящего сообщения
 		,MAX([countP3]) AS countP3
-		,MAX([P3]) AS P3			--Формат исходящего документа
+		,MAX([P3])		AS P3			--Формат исходящего документа
 		,MAX([countP4]) AS countP4
-		,MAX([P4]) AS P4			--Формат исходящего уведомления
+		,MAX([P4])		AS P4			--Формат исходящего уведомления
 		,MAX([countP5]) AS countP5
-		,MAX([P5]) AS P5			--Формат исходящей квитанции
+		,MAX([P5])		AS P5			--Формат исходящей квитанции
 	FROM(	
 		SELECT   -- Финальная таблица по простым форматным оценкам (п1-п5)
-			MemberName
-			,'countP1' = IIF([1] is not null, CountPackage, 0) --case when ([1] is not null) then CountPackage end
-			,[1] AS P1											--Формат исходящего пакета
+			MemberGuid 
+			,'countP1' = IIF([1] is not null, CountPackage, 0)			--case when ([1] is not null) then CountPackage end
+			,[1]		AS P1											--Формат исходящего пакета
 			,'countP2' = IIF([2] is not null, CountPackage, 0)
-			,[2] AS P2											--Формат исходящего сообщения
+			,[2]		AS P2											--Формат исходящего сообщения
 			,'countP3' = IIF([3] is not null, CountPackage, 0)
-			,[3] AS P3											--Формат исходящего документа
+			,[3]		AS P3											--Формат исходящего документа
 			,'countP4' = IIF([4] is not null, CountPackage, 0)
-			,[4] AS P4											--Формат исходящего уведомления
+			,[4]		AS P4											--Формат исходящего уведомления
 			,'countP5' = IIF([5] is not null, CountPackage, 0)
-			,[5] AS P5											--Формат исходящей квитанции
+			,[5]		AS P5											--Формат исходящей квитанции
 		FROM(
-			SELECT  -- FinalScoreForMemberName = Сумма всех оценок по всем пакетам, кол-во пакетов по кажому участнику и итоговый рейтинг (среднее)
-				Member.Name AS MemberName
+			SELECT  -- FinalScoreForMemberName = Сумма всех оценок по всем пакетам, кол-во пакетов по каждому участнику и итоговый рейтинг (среднее)
+				Member.Guid												AS MemberGuid 
 				--,ActualSumScore.CriterionGroup
 				,CAST(SUBSTRING(ActualSumScore.Criterion, 1, 1) AS INT)	AS CriterionGroup
-				,MAX(CountCriterion) AS CountPackage
+				,MAX(CountCriterion)									AS CountPackage
 				--,COUNT(ActualSumScore.SumValue) AS CountPackage
-				,SUM(ActualSumScore.SumValue) AS Rating
+				,SUM(ActualSumScore.SumValue)							AS Rating
 			FROM (
-				SELECT -- ActualSumScore = актуальные оценки по каждой группе критериев каждого пакета для каждого участника
+				SELECT -- ActualSumScore = средняя оценка по каждому критерию для каждого участника
 					ScoreGrouped.MemberGuid
 					--,ScoreGrouped.CriterionGroup
 					,ScoreGrouped.Criterion
 					--,#tmp_ValidationLog.LogId
-					,COUNT(CAST(SUBSTRING(ScoreGrouped.Criterion, 1, 1) AS INT)) AS CountCriterion  
-					,AVG(ScoreGrouped.Value) AS SumValue
+					,COUNT(CAST(SUBSTRING(ScoreGrouped.Criterion, 1, 1) AS INT))	AS CountCriterion  
+					,AVG(ScoreGrouped.Value)										AS SumValue
 				FROM
 					#tmp_ValidationLog --Таблица всех валидных последних логов
 				INNER JOIN ( --ScoreGrouped = оценки всех пакетов
@@ -143,8 +155,8 @@ FROM(
 					ON #tmp_ValidationLog.LogId = ScoreGrouped.ValidationLog
 				WHERE
 					#tmp_ValidationLog.Incoming = 0
-					AND #tmp_ValidationLog.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-					AND #tmp_ValidationLog.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
+					AND #tmp_ValidationLog.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+					AND #tmp_ValidationLog.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
 					--AND #tmp_ValidationLog.ReceivedOn &gt;=  '2021-03-01' --начало периода отчета
 					--AND #tmp_ValidationLog.ReceivedOn &lt; '2021-04-01' --конец периода отчета
 				GROUP BY
@@ -156,7 +168,7 @@ FROM(
 			RIGHT OUTER JOIN Member
 				ON Member.Guid = ActualSumScore.MemberGuid
 			GROUP BY
-				Member.Name
+				Member.Guid 
 				--,ActualSumScore.CriterionGroup
 				,CAST(SUBSTRING(ActualSumScore.Criterion, 1, 1) AS INT)
 			)x
@@ -166,40 +178,41 @@ FROM(
 				IN([1],[2],[3],[4],[5])	 
 			) AS PivotTable
 	) AS Final_Rating
-	GROUP BY MemberName
+	GROUP BY 
+		MemberGuid 
 ) AS FormatScore
 
 INNER JOIN (
 	SELECT --MemberScoreP6 --подсчет кол-ва набранных очков, кол-во принятых пакетов участником и рейтинга (среднее)
-		Member.Name AS MemberName
-		,SUM(ScoreForMessage.Score)/COUNT(ScoreForMessage.Member) AS RatingP6
-		,COUNT(ScoreForMessage.Member) as countMessP6
+		Member.Guid													AS MemberGuid 
+		,SUM(ScoreForMessage.Score)/COUNT(ScoreForMessage.Member)	AS RatingP6
+		,COUNT(ScoreForMessage.Member)								AS countMessP6
 	FROM (	 
 		SELECT --ScoreForMessage --очки за доставку уведомления в срок
 			CheckMessageComplete.DocumentUid
 			,CheckMessageComplete.Member
 			,CheckMessageComplete.ControllerReactedOn
 			,'Score' = CASE 
-							WHEN CheckMessageComplete.DataDiff &gt;= 0 THEN 200 
-							WHEN ((CheckMessageComplete.DataDiff &lt; 0) OR (CheckMessageComplete.DataDiff IS NULL)) THEN 0 
+							WHEN CheckMessageComplete.DateDiff &gt;= 0 THEN 200 
+							WHEN ((CheckMessageComplete.DateDiff &lt; 0) OR (CheckMessageComplete.DateDiff IS NULL)) THEN 0 
 							END
 		FROM (
-			SELECT --CheckMessageComplete --проверка, что уведомление доставленно в срок (DataDiff &lt; 0 - не в срок, DataDiff &gt; в срок)
+			SELECT --CheckMessageComplete --проверка, что уведомление доставленно в срок (DateDiff &lt; 0 - не в срок, DateDiff &gt; в срок)
 				RegistrationMessage.DocumentUid
 				,RegistrationMessage.Member
-				--,DATEDIFF(MILLISECOND, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn) AS DataDiff --Тут переполнение по миллисекундам идет - не подходит
-				,'DataDiff' = IIF(DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)) = 0 --если даты совпадают, то сравниваем по миллисекундам
+				--,DATEDIFF(MILLISECOND, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn) AS DateDiff --Тут переполнение по миллисекундам идет - не подходит
+				,'DateDiff' = IIF(DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)) = 0 --если даты совпадают, то сравниваем по миллисекундам
 									,DATEDIFF(MINUTE, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn)
 									,DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)))  --иначе сравниваем по дням
 																				
 				,RegistrationMessage.ControllerReactedOn
 			FROM (
 				SELECT --RegistrationMessage - даты ожидания ответа от участника и даты доставки пакета от контроллера по каждому DocumentUid
-					RequestMessage.DocumentUid AS DocumentUid
-					,RequestMessage.SenderGuid AS Controller
-					,RequestMessage.RecipientGuid  AS Member
-					,RequestMessage.MaxReactedOn   AS ControllerReactedOn
-					,ResponseMessage.MinPackageDelivaredOn   AS MemberDelivaredOn
+					RequestMessage.DocumentUid					AS DocumentUid
+					,RequestMessage.SenderGuid					AS Controller
+					,RequestMessage.RecipientGuid				AS Member
+					,RequestMessage.MaxReactedOn				AS ControllerReactedOn
+					,ResponseMessage.MinPackageDelivaredOn		AS MemberDelivaredOn
 				FROM (
 					SELECT  --RequestMessage - Зарегистрированные документы/ТК, ожидающие уведомления в период очета по каждому участнику по каждому uid  документа
 						RegistrationControl.DocumentUid
@@ -212,8 +225,8 @@ INNER JOIN (
 						ON #tmp_ValidationLog.LogId = RegistrationControl.ValidatingLog
 					WHERE
 						RegistrationControl.RequestCount = 1
-						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
+						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
 						--AND RegistrationControl.PackageDelivaredOn &gt;=  '2021-03-01' --начало периода отчета
 						--AND RegistrationControl.PackageDelivaredOn &lt; '2021-04-01' --конец периода отчета
 						--AND #tmp_ValidationLog.Incoming = 1 --смотрим входящие участнику документы
@@ -255,7 +268,7 @@ INNER JOIN (
 				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
 				END 
 			&gt; 0 
-			AND CheckMessageComplete.DataDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DataDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+			AND CheckMessageComplete.DateDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
 			OR (CASE
 				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
 				THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
@@ -267,14 +280,14 @@ INNER JOIN (
 	RIGHT OUTER JOIN Member
 		ON Member.Guid = ScoreForMessage.Member
 	GROUP BY 
-		Member.Name
+		Member.Guid
 ) as MemberScoreP6
-	ON MemberScoreP6.MemberName=FormatScore.MemberName
+	ON MemberScoreP6.MemberGuid =FormatScore.MemberGuid
 
 INNER JOIN (
 	SELECT --MemberScoreP7 --подсчет кол-ва набранных очков, кол-во принятых пакетов участником и рейтинга (среднее)
-		Member.Name AS MemberName
-		,SUM(ScoreForMessage.Score)/COUNT(ScoreForMessage.Member) AS RatingP7
+		Member.Guid													AS MemberGuid 
+		,SUM(ScoreForMessage.Score)/COUNT(ScoreForMessage.Member)	AS RatingP7
 		,COUNT(ScoreForMessage.Member) as countMessP7
 	FROM (	 
 		SELECT --ScoreForMessage --очки за доставку уведомления в срок
@@ -282,26 +295,26 @@ INNER JOIN (
 			,CheckMessageComplete.Member
 			,CheckMessageComplete.ControllerReactedOn
 			,'Score' = CASE 
-							WHEN CheckMessageComplete.DataDiff &gt;= 0 THEN 200 
-							WHEN ((CheckMessageComplete.DataDiff &lt; 0) OR (CheckMessageComplete.DataDiff IS NULL)) THEN 0 
+							WHEN CheckMessageComplete.DateDiff &gt;= 0 THEN 200 
+							WHEN ((CheckMessageComplete.DateDiff &lt; 0) OR (CheckMessageComplete.DateDiff IS NULL)) THEN 0 
 							END
 		FROM (
-			SELECT --CheckMessageComplete --проверка, что уведомление доставленно в срок (DataDiff &lt; 0 - не в срок, DataDiff &gt; в срок)
+			SELECT --CheckMessageComplete --проверка, что уведомление доставленно в срок (DateDiff &lt; 0 - не в срок, DateDiff &gt; в срок)
 				RegistrationMessage.MessageUid
 				,RegistrationMessage.Member
-				--,DATEDIFF(MILLISECOND, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn) AS DataDiff --Тут переполнение по миллисекундам идет - не подходит
-				,'DataDiff' = IIF(DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)) = 0 --если даты совпадают, то сравниваем по миллисекундам
+				--,DATEDIFF(MILLISECOND, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn) AS DateDiff --Тут переполнение по миллисекундам идет - не подходит
+				,'DateDiff' = IIF(DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)) = 0 --если даты совпадают, то сравниваем по миллисекундам
 									,DATEDIFF(MINUTE, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn)
 									,DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)))  --иначе сравниваем по дням
 																				
 				,RegistrationMessage.ControllerReactedOn
 			FROM (
 				SELECT --RegistrationMessage - даты ожидания ответа от участника и даты доставки пакета от контроллера по каждому DocumentUid
-					RequestMessage.MessageUid AS MessageUid
-					,RequestMessage.SenderGuid AS Controller
-					,RequestMessage.RecipientGuid  AS Member
-					,RequestMessage.MaxReactedOn   AS ControllerReactedOn
-					,ResponseMessage.MinPackageDelivaredOn   AS MemberDelivaredOn
+					RequestMessage.MessageUid					AS MessageUid
+					,RequestMessage.SenderGuid					AS Controller
+					,RequestMessage.RecipientGuid				AS Member
+					,RequestMessage.MaxReactedOn				AS ControllerReactedOn
+					,ResponseMessage.MinPackageDelivaredOn		AS MemberDelivaredOn
 				FROM (
 					SELECT  --RequestMessage - Зарегистрированные документы/ТК, ожидающие уведомления в период очета по каждому участнику по каждому uid  документа
 						ConfirmationControl.MessageUid
@@ -314,8 +327,8 @@ INNER JOIN (
 						ON #tmp_ValidationLog.LogId = ConfirmationControl.ValidatingLog
 					WHERE
 						ConfirmationControl.RequestCount = 1
-						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
+						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
 						--AND ConfirmationControl.PackageDelivaredOn &gt;=  '2021-03-01' --начало периода отчета
 						--AND ConfirmationControl.PackageDelivaredOn &lt; '2021-04-01' --конец периода отчета
 						--AND #tmp_ValidationLog.Incoming = 1 --смотрим входящие участнику документы
@@ -357,7 +370,7 @@ INNER JOIN (
 				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
 				END 
 			&gt; 0 
-			AND CheckMessageComplete.DataDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DataDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+			AND CheckMessageComplete.DateDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
 			OR (CASE
 				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
 				THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
@@ -369,9 +382,11 @@ INNER JOIN (
 	RIGHT OUTER JOIN Member
 		ON Member.Guid = ScoreForMessage.Member
 	GROUP BY 
-		Member.Name
-) as MemberScoreP7
-	ON MemberScoreP7.MemberName=FormatScore.MemberName
+		Member.Guid
+) AS MemberScoreP7
+	ON MemberScoreP7.MemberGuid =FormatScore.MemberGuid 
+INNER JOIN Member
+	ON Member.Guid = FormatScore.MemberGuid COLLATE SQL_Latin1_General_CP1_CI_AS
 </CommandText>
         <rd:UseGenericDesigner>true</rd:UseGenericDesigner>
       </Query>
@@ -384,8 +399,8 @@ INNER JOIN (
           <DataField>Rating</DataField>
           <rd:TypeName>System.Int32</rd:TypeName>
         </Field>
-        <Field Name="MemberName">
-          <DataField>MemberName</DataField>
+        <Field Name="Name">
+          <DataField>Name</DataField>
           <rd:TypeName>System.String</rd:TypeName>
         </Field>
         <Field Name="countP1">
@@ -473,9 +488,8 @@ INNER JOIN (
             <rd:WatermarkTextbox>Title</rd:WatermarkTextbox>
             <rd:DefaultName>ReportTitle</rd:DefaultName>
             <Top>0mm</Top>
-            <Left>0.06217cm</Left>
             <Height>10.16mm</Height>
-            <Width>534.62001mm</Width>
+            <Width>406.30375mm</Width>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -493,7 +507,7 @@ INNER JOIN (
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(Parameters!DataStart.Value, "dd MMM yyyy")</Value>
+                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
                     <Style>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
@@ -505,10 +519,10 @@ INNER JOIN (
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>DataStart</rd:DefaultName>
-            <Top>14.93244mm</Top>
-            <Left>35.11704mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>34.49547mm</Left>
             <Height>6mm</Height>
-            <Width>25.64638mm</Width>
+            <Width>31.56433mm</Width>
             <ZIndex>1</ZIndex>
             <Style>
               <Border>
@@ -527,7 +541,7 @@ INNER JOIN (
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DataEnd.Value)), "dd MMM yyyy")</Value>
+                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)), "dd MMMM yyyy")</Value>
                     <Style>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
@@ -539,8 +553,8 @@ INNER JOIN (
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>14.93244mm</Top>
-            <Left>66.94952mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>72.2459mm</Left>
             <Height>6mm</Height>
             <Width>27.94785mm</Width>
             <ZIndex>2</ZIndex>
@@ -571,8 +585,8 @@ INNER JOIN (
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox59</rd:DefaultName>
-            <Top>14.93244mm</Top>
-            <Left>0.62163mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>0.00006mm</Left>
             <Height>6mm</Height>
             <Width>30.02708mm</Width>
             <ZIndex>3</ZIndex>
@@ -603,8 +617,8 @@ INNER JOIN (
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>14.93244mm</Top>
-            <Left>30.64871mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>30.02714mm</Left>
             <Height>6mm</Height>
             <Width>4.46833mm</Width>
             <ZIndex>4</ZIndex>
@@ -635,8 +649,8 @@ INNER JOIN (
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>14.93244mm</Top>
-            <Left>60.76342mm</Left>
+            <Top>11.92389mm</Top>
+            <Left>66.0598mm</Left>
             <Height>6mm</Height>
             <Width>6.1861mm</Width>
             <ZIndex>5</ZIndex>
@@ -671,10 +685,10 @@ INNER JOIN (
             </Paragraphs>
             <rd:WatermarkTextbox>Title</rd:WatermarkTextbox>
             <rd:DefaultName>ReportTitle</rd:DefaultName>
-            <Top>61.10986mm</Top>
-            <Left>0.06217cm</Left>
+            <Top>58.05866mm</Top>
+            <Left>0cm</Left>
             <Height>10.16mm</Height>
-            <Width>534.62001mm</Width>
+            <Width>488.87704mm</Width>
             <ZIndex>6</ZIndex>
             <Style>
               <Border>
@@ -700,46 +714,46 @@ INNER JOIN (
                   <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>23.01249mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>24.79459mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>24.15334mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>26.64668mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>26.39916mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>29.12753mm</Width>
+                  <Width>26mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>26mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>30.08001mm</Width>
+                  <Width>26mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>26mm</Width>
                 </TablixColumn>
               </TablixColumns>
               <TablixRows>
@@ -803,7 +817,7 @@ INNER JOIN (
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=Fields!MemberName.Value</Value>
+                                  <Value>=Fields!Name.Value</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <Color>#4d4d4d</Color>
@@ -821,13 +835,13 @@ INNER JOIN (
                                   <ReportName>/Reports/Report_builder.Report_8</ReportName>
                                   <Parameters>
                                     <Parameter Name="Member">
-                                      <Value>=Fields!MemberName.Value</Value>
+                                      <Value>=Fields!Name.Value</Value>
                                     </Parameter>
-                                    <Parameter Name="DataStart">
-                                      <Value>=Parameters!DataStart.Value</Value>
+                                    <Parameter Name="DateStart">
+                                      <Value>=Parameters!DateStart.Value</Value>
                                     </Parameter>
-                                    <Parameter Name="DataEnd">
-                                      <Value>=Parameters!DataEnd.Value</Value>
+                                    <Parameter Name="DateEnd">
+                                      <Value>=Parameters!DateEnd.Value</Value>
                                     </Parameter>
                                   </Parameters>
                                 </Drillthrough>
@@ -3341,7 +3355,7 @@ INNER JOIN (
                                             <Value>Кол-во требующих ответ ЭС</Value>
                                             <Style>
                                               <FontFamily>Tahoma</FontFamily>
-                                              <FontSize>11pt</FontSize>
+                                              <FontSize>9pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
                                               <Color>Gray</Color>
                                             </Style>
@@ -3543,7 +3557,7 @@ INNER JOIN (
                                             <Value>Кол-во требующих ответ ЭС</Value>
                                             <Style>
                                               <FontFamily>Tahoma</FontFamily>
-                                              <FontSize>11pt</FontSize>
+                                              <FontSize>9pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
                                               <Color>Gray</Color>
                                             </Style>
@@ -3623,6 +3637,7 @@ INNER JOIN (
                                         <Style>None</Style>
                                       </RightBorder>
                                       <BackgroundColor>White</BackgroundColor>
+                                      <VerticalAlign>Middle</VerticalAlign>
                                       <PaddingLeft>2pt</PaddingLeft>
                                       <PaddingRight>15pt</PaddingRight>
                                       <PaddingTop>2pt</PaddingTop>
@@ -3703,13 +3718,13 @@ INNER JOIN (
                 <Direction>Descending</Direction>
               </SortExpression>
               <SortExpression>
-                <Value>=Fields!MemberName.Value</Value>
+                <Value>=Fields!Name.Value</Value>
               </SortExpression>
             </SortExpressions>
-            <Top>22.69633mm</Top>
-            <Left>0.62167mm</Left>
+            <Top>18.9883mm</Top>
+            <Left>0.00006mm</Left>
             <Height>29.57667mm</Height>
-            <Width>451.51755mm</Width>
+            <Width>406.30375mm</Width>
             <ZIndex>7</ZIndex>
             <Style>
               <Border>
@@ -3727,46 +3742,46 @@ INNER JOIN (
                   <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>23.01249mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>24.79459mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>24.15334mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>26.64668mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>26.39916mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>29.6567mm</Width>
+                  <Width>26mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>26mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>30.08001mm</Width>
+                  <Width>26mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>26mm</Width>
                 </TablixColumn>
                 <TablixColumn>
                   <Width>82.57332mm</Width>
@@ -3785,7 +3800,7 @@ INNER JOIN (
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=Fields!MemberName.Value</Value>
+                                  <Value>=Fields!Name.Value</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <Color>#4d4d4d</Color>
@@ -3803,13 +3818,13 @@ INNER JOIN (
                                   <ReportName>/Reports/Report_builder.Report_8</ReportName>
                                   <Parameters>
                                     <Parameter Name="Member">
-                                      <Value>=Fields!MemberName.Value</Value>
+                                      <Value>=Fields!Name.Value</Value>
                                     </Parameter>
-                                    <Parameter Name="DataStart">
-                                      <Value>=Parameters!DataStart.Value</Value>
+                                    <Parameter Name="DateStart">
+                                      <Value>=Parameters!DateStart.Value</Value>
                                     </Parameter>
-                                    <Parameter Name="DataEnd">
-                                      <Value>=Parameters!DataEnd.Value</Value>
+                                    <Parameter Name="DateEnd">
+                                      <Value>=Parameters!DateEnd.Value</Value>
                                     </Parameter>
                                   </Parameters>
                                 </Drillthrough>
@@ -3823,7 +3838,6 @@ INNER JOIN (
                             </Border>
                             <TopBorder>
                               <Color>#4e648a</Color>
-                              <Width>1pt</Width>
                             </TopBorder>
                             <BottomBorder>
                               <Color>#4e648a</Color>
@@ -6155,7 +6169,7 @@ INNER JOIN (
                                             <Value>Кол-во требующих ответ ЭС</Value>
                                             <Style>
                                               <FontFamily>Tahoma</FontFamily>
-                                              <FontSize>11pt</FontSize>
+                                              <FontSize>9pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
                                               <Color>Gray</Color>
                                             </Style>
@@ -6357,7 +6371,7 @@ INNER JOIN (
                                             <Value>Кол-во требующих ответ ЭС</Value>
                                             <Style>
                                               <FontFamily>Tahoma</FontFamily>
-                                              <FontSize>11pt</FontSize>
+                                              <FontSize>9pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
                                               <Color>Gray</Color>
                                             </Style>
@@ -6662,13 +6676,13 @@ INNER JOIN (
                 <Direction>Descending</Direction>
               </SortExpression>
               <SortExpression>
-                <Value>=Fields!MemberName.Value</Value>
+                <Value>=Fields!Name.Value</Value>
               </SortExpression>
             </SortExpressions>
-            <Top>73.03374mm</Top>
-            <Left>0.62167mm</Left>
+            <Top>69.98254mm</Top>
+            <Left>0mm</Left>
             <Height>29.57667mm</Height>
-            <Width>534.62004mm</Width>
+            <Width>488.87707mm</Width>
             <ZIndex>8</ZIndex>
             <Style>
               <Border>
@@ -6677,17 +6691,17 @@ INNER JOIN (
             </Style>
           </Tablix>
         </ReportItems>
-        <Height>102.61041mm</Height>
+        <Height>99.55921mm</Height>
         <Style>
           <Border>
             <Style>None</Style>
           </Border>
         </Style>
       </Body>
-      <Width>535.24171mm</Width>
+      <Width>488.87707mm</Width>
       <Page>
         <PageFooter>
-          <Height>8.46389mm</Height>
+          <Height>8.11389mm</Height>
           <PrintOnFirstPage>true</PrintOnFirstPage>
           <PrintOnLastPage>true</PrintOnLastPage>
           <ReportItems>
@@ -6708,10 +6722,10 @@ INNER JOIN (
                 </Paragraph>
               </Paragraphs>
               <rd:DefaultName>ExecutionTime</rd:DefaultName>
-              <Top>2.11389mm</Top>
-              <Left>484.44171mm</Left>
+              <Top>1.76389mm</Top>
+              <Left>438.6988mm</Left>
               <Height>6.35mm</Height>
-              <Width>50.8mm</Width>
+              <Width>50.17827mm</Width>
               <Style>
                 <Border>
                   <Style>None</Style>
@@ -6739,10 +6753,10 @@ INNER JOIN (
                 </Paragraph>
               </Paragraphs>
               <rd:DefaultName>Textbox87</rd:DefaultName>
-              <Top>2.11389mm</Top>
-              <Left>456.97033mm</Left>
+              <Top>1.76389mm</Top>
+              <Left>406.30375mm</Left>
               <Height>6.35mm</Height>
-              <Width>27.47138mm</Width>
+              <Width>32.39505mm</Width>
               <ZIndex>1</ZIndex>
               <Style>
                 <Border>
@@ -6775,7 +6789,7 @@ INNER JOIN (
     </ReportSection>
   </ReportSections>
   <ReportParameters>
-    <ReportParameter Name="DataStart">
+    <ReportParameter Name="DateStart">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>
@@ -6784,7 +6798,7 @@ INNER JOIN (
       </DefaultValue>
       <Prompt>Дата начала</Prompt>
     </ReportParameter>
-    <ReportParameter Name="DataEnd">
+    <ReportParameter Name="DateEnd">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>

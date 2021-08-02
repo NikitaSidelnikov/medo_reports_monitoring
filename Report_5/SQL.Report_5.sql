@@ -1,15 +1,22 @@
-DECLARE @DataStart DateTime2
-SET @DataStart = '2021-03-01'
-DECLARE @DataEnd DateTime2
-SET @DataEnd = '2021-04-01'
+---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-06-01'
+-------------------------------------------------------------------
 
 if object_id('tempdb..#tmp_ValidationLog') is not null
 	DROP TABLE #tmp_ValidationLog
 
-CREATE TABLE #tmp_ValidationLog (LogId BIGINT PRIMARY KEY, Incoming BIT, ReceivedOn DATETIME2(7)) --Таблица всех валидных последних логов
+CREATE TABLE #tmp_ValidationLog (
+								LogId BIGINT PRIMARY KEY
+								,Incoming BIT
+								,ReceivedOn DATETIME2(7)
+							) --Таблица всех валидных последних логов
+
 INSERT INTO #tmp_ValidationLog  
 	SELECT -- ActualLogs - Id последних валидных логов по каждому обработанному пакету в период отчета
-		ValidationLog.Id AS LogId
+		ValidationLog.Id		AS LogId
 		,SuccesPackage.Incoming
 		,SuccesPackage.ReceivedOn
 	FROM
@@ -45,8 +52,8 @@ INSERT INTO #tmp_ValidationLog
 SELECT
 	DENSE_RANK() OVER(
 		ORDER BY P1+P2+P3+P4+P5+MemberScoreP6.RatingP6+MemberScoreP7.RatingP7 DESC
-	  )as RankMember  --тут присваиваем позицию. Если очки у 1-ого и 2-ого участников одинаковы - то место одинаково. Если хоть по одной из групп критериев 0 очков или NULL - не попадает в общий рейтинг
-	,P1+P2+P3+P4+P5+MemberScoreP6.RatingP6+MemberScoreP7.RatingP7 AS Rating
+	  ) AS RankMember  --тут присваиваем позицию. Если очки у 1-ого и 2-ого участников одинаковы - то место одинаково. Если хоть по одной из групп критериев 0 очков или NULL - не попадает в общий рейтинг
+	,P1+P2+P3+P4+P5+MemberScoreP6.RatingP6+MemberScoreP7.RatingP7	AS Rating
 	,Member.Name
 	,countP1
 	,FormatScore.P1
@@ -58,53 +65,53 @@ SELECT
 	,FormatScore.P4
 	,countP5
 	,FormatScore.P5
-	,MemberScoreP6.countMessP6 AS countP6 
-	,MemberScoreP6.RatingP6 AS P6
-	,MemberScoreP7.countMessP7 AS countP7
-	,MemberScoreP7.RatingP7 AS P7
+	,MemberScoreP6.countMessP6	AS countP6 
+	,MemberScoreP6.RatingP6		AS P6
+	,MemberScoreP7.countMessP7	AS countP7
+	,MemberScoreP7.RatingP7		AS P7
 FROM(
 
 	SELECT   -- Финальная таблица по простым форматным оценкам (п1-п5)
 		MemberGuid 
 		,MAX([countP1]) AS countP1 
-		,MAX([P1]) AS P1			--Формат исходящего пакета
+		,MAX([P1])		AS P1			--Формат исходящего пакета
 		,MAX([countP2]) AS countP2
-		,MAX([P2]) AS P2			--Формат исходящего сообщения
+		,MAX([P2])		AS P2			--Формат исходящего сообщения
 		,MAX([countP3]) AS countP3
-		,MAX([P3]) AS P3			--Формат исходящего документа
+		,MAX([P3])		AS P3			--Формат исходящего документа
 		,MAX([countP4]) AS countP4
-		,MAX([P4]) AS P4			--Формат исходящего уведомления
+		,MAX([P4])		AS P4			--Формат исходящего уведомления
 		,MAX([countP5]) AS countP5
-		,MAX([P5]) AS P5			--Формат исходящей квитанции
+		,MAX([P5])		AS P5			--Формат исходящей квитанции
 	FROM(	
 		SELECT   -- Финальная таблица по простым форматным оценкам (п1-п5)
 			MemberGuid 
-			,'countP1' = IIF([1] is not null, CountPackage, 0) --case when ([1] is not null) then CountPackage end
-			,[1] AS P1											--Формат исходящего пакета
+			,'countP1' = IIF([1] is not null, CountPackage, 0)			--case when ([1] is not null) then CountPackage end
+			,[1]		AS P1											--Формат исходящего пакета
 			,'countP2' = IIF([2] is not null, CountPackage, 0)
-			,[2] AS P2											--Формат исходящего сообщения
+			,[2]		AS P2											--Формат исходящего сообщения
 			,'countP3' = IIF([3] is not null, CountPackage, 0)
-			,[3] AS P3											--Формат исходящего документа
+			,[3]		AS P3											--Формат исходящего документа
 			,'countP4' = IIF([4] is not null, CountPackage, 0)
-			,[4] AS P4											--Формат исходящего уведомления
+			,[4]		AS P4											--Формат исходящего уведомления
 			,'countP5' = IIF([5] is not null, CountPackage, 0)
-			,[5] AS P5											--Формат исходящей квитанции
+			,[5]		AS P5											--Формат исходящей квитанции
 		FROM(
 			SELECT  -- FinalScoreForMemberName = Сумма всех оценок по всем пакетам, кол-во пакетов по каждому участнику и итоговый рейтинг (среднее)
-				Member.Guid AS MemberGuid 
+				Member.Guid												AS MemberGuid 
 				--,ActualSumScore.CriterionGroup
 				,CAST(SUBSTRING(ActualSumScore.Criterion, 1, 1) AS INT)	AS CriterionGroup
-				,MAX(CountCriterion) AS CountPackage
+				,MAX(CountCriterion)									AS CountPackage
 				--,COUNT(ActualSumScore.SumValue) AS CountPackage
-				,SUM(ActualSumScore.SumValue) AS Rating
+				,SUM(ActualSumScore.SumValue)							AS Rating
 			FROM (
 				SELECT -- ActualSumScore = средняя оценка по каждому критерию для каждого участника
 					ScoreGrouped.MemberGuid
 					--,ScoreGrouped.CriterionGroup
 					,ScoreGrouped.Criterion
 					--,#tmp_ValidationLog.LogId
-					,COUNT(CAST(SUBSTRING(ScoreGrouped.Criterion, 1, 1) AS INT)) AS CountCriterion  
-					,AVG(ScoreGrouped.Value) AS SumValue
+					,COUNT(CAST(SUBSTRING(ScoreGrouped.Criterion, 1, 1) AS INT))	AS CountCriterion  
+					,AVG(ScoreGrouped.Value)										AS SumValue
 				FROM
 					#tmp_ValidationLog --Таблица всех валидных последних логов
 				INNER JOIN ( --ScoreGrouped = оценки всех пакетов
@@ -122,8 +129,8 @@ FROM(
 					ON #tmp_ValidationLog.LogId = ScoreGrouped.ValidationLog
 				WHERE
 					#tmp_ValidationLog.Incoming = 0
-					AND #tmp_ValidationLog.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-					AND #tmp_ValidationLog.ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
+					AND #tmp_ValidationLog.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+					AND #tmp_ValidationLog.ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
 					--AND #tmp_ValidationLog.ReceivedOn >=  '2021-03-01' --начало периода отчета
 					--AND #tmp_ValidationLog.ReceivedOn < '2021-04-01' --конец периода отчета
 				GROUP BY
@@ -151,35 +158,35 @@ FROM(
 
 INNER JOIN (
 	SELECT --MemberScoreP6 --подсчет кол-ва набранных очков, кол-во принятых пакетов участником и рейтинга (среднее)
-		Member.Guid AS MemberGuid 
-		,SUM(ScoreForMessage.Score)/COUNT(ScoreForMessage.Member) AS RatingP6
-		,COUNT(ScoreForMessage.Member) as countMessP6
+		Member.Guid													AS MemberGuid 
+		,SUM(ScoreForMessage.Score)/COUNT(ScoreForMessage.Member)	AS RatingP6
+		,COUNT(ScoreForMessage.Member)								AS countMessP6
 	FROM (	 
 		SELECT --ScoreForMessage --очки за доставку уведомления в срок
 			CheckMessageComplete.DocumentUid
 			,CheckMessageComplete.Member
 			,CheckMessageComplete.ControllerReactedOn
 			,'Score' = CASE 
-							WHEN CheckMessageComplete.DataDiff >= 0 THEN 200 
-							WHEN ((CheckMessageComplete.DataDiff < 0) OR (CheckMessageComplete.DataDiff IS NULL)) THEN 0 
+							WHEN CheckMessageComplete.DateDiff >= 0 THEN 200 
+							WHEN ((CheckMessageComplete.DateDiff < 0) OR (CheckMessageComplete.DateDiff IS NULL)) THEN 0 
 							END
 		FROM (
-			SELECT --CheckMessageComplete --проверка, что уведомление доставленно в срок (DataDiff < 0 - не в срок, DataDiff > в срок)
+			SELECT --CheckMessageComplete --проверка, что уведомление доставленно в срок (DateDiff < 0 - не в срок, DateDiff > в срок)
 				RegistrationMessage.DocumentUid
 				,RegistrationMessage.Member
-				--,DATEDIFF(MILLISECOND, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn) AS DataDiff --Тут переполнение по миллисекундам идет - не подходит
-				,'DataDiff' = IIF(DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)) = 0 --если даты совпадают, то сравниваем по миллисекундам
+				--,DATEDIFF(MILLISECOND, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn) AS DateDiff --Тут переполнение по миллисекундам идет - не подходит
+				,'DateDiff' = IIF(DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)) = 0 --если даты совпадают, то сравниваем по миллисекундам
 									,DATEDIFF(MINUTE, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn)
 									,DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)))  --иначе сравниваем по дням
 																				
 				,RegistrationMessage.ControllerReactedOn
 			FROM (
 				SELECT --RegistrationMessage - даты ожидания ответа от участника и даты доставки пакета от контроллера по каждому DocumentUid
-					RequestMessage.DocumentUid AS DocumentUid
-					,RequestMessage.SenderGuid AS Controller
-					,RequestMessage.RecipientGuid  AS Member
-					,RequestMessage.MaxReactedOn   AS ControllerReactedOn
-					,ResponseMessage.MinPackageDelivaredOn   AS MemberDelivaredOn
+					RequestMessage.DocumentUid					AS DocumentUid
+					,RequestMessage.SenderGuid					AS Controller
+					,RequestMessage.RecipientGuid				AS Member
+					,RequestMessage.MaxReactedOn				AS ControllerReactedOn
+					,ResponseMessage.MinPackageDelivaredOn		AS MemberDelivaredOn
 				FROM (
 					SELECT  --RequestMessage - Зарегистрированные документы/ТК, ожидающие уведомления в период очета по каждому участнику по каждому uid  документа
 						RegistrationControl.DocumentUid
@@ -192,8 +199,8 @@ INNER JOIN (
 						ON #tmp_ValidationLog.LogId = RegistrationControl.ValidatingLog
 					WHERE
 						RegistrationControl.RequestCount = 1
-						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) < DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
+						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
 						--AND RegistrationControl.PackageDelivaredOn >=  '2021-03-01' --начало периода отчета
 						--AND RegistrationControl.PackageDelivaredOn < '2021-04-01' --конец периода отчета
 						--AND #tmp_ValidationLog.Incoming = 1 --смотрим входящие участнику документы
@@ -235,7 +242,7 @@ INNER JOIN (
 				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
 				END 
 			> 0 
-			AND CheckMessageComplete.DataDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DataDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+			AND CheckMessageComplete.DateDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
 			OR (CASE
 				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
 				THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
@@ -253,8 +260,8 @@ INNER JOIN (
 
 INNER JOIN (
 	SELECT --MemberScoreP7 --подсчет кол-ва набранных очков, кол-во принятых пакетов участником и рейтинга (среднее)
-		Member.Guid AS MemberGuid 
-		,SUM(ScoreForMessage.Score)/COUNT(ScoreForMessage.Member) AS RatingP7
+		Member.Guid													AS MemberGuid 
+		,SUM(ScoreForMessage.Score)/COUNT(ScoreForMessage.Member)	AS RatingP7
 		,COUNT(ScoreForMessage.Member) as countMessP7
 	FROM (	 
 		SELECT --ScoreForMessage --очки за доставку уведомления в срок
@@ -262,26 +269,26 @@ INNER JOIN (
 			,CheckMessageComplete.Member
 			,CheckMessageComplete.ControllerReactedOn
 			,'Score' = CASE 
-							WHEN CheckMessageComplete.DataDiff >= 0 THEN 200 
-							WHEN ((CheckMessageComplete.DataDiff < 0) OR (CheckMessageComplete.DataDiff IS NULL)) THEN 0 
+							WHEN CheckMessageComplete.DateDiff >= 0 THEN 200 
+							WHEN ((CheckMessageComplete.DateDiff < 0) OR (CheckMessageComplete.DateDiff IS NULL)) THEN 0 
 							END
 		FROM (
-			SELECT --CheckMessageComplete --проверка, что уведомление доставленно в срок (DataDiff < 0 - не в срок, DataDiff > в срок)
+			SELECT --CheckMessageComplete --проверка, что уведомление доставленно в срок (DateDiff < 0 - не в срок, DateDiff > в срок)
 				RegistrationMessage.MessageUid
 				,RegistrationMessage.Member
-				--,DATEDIFF(MILLISECOND, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn) AS DataDiff --Тут переполнение по миллисекундам идет - не подходит
-				,'DataDiff' = IIF(DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)) = 0 --если даты совпадают, то сравниваем по миллисекундам
+				--,DATEDIFF(MILLISECOND, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn) AS DateDiff --Тут переполнение по миллисекундам идет - не подходит
+				,'DateDiff' = IIF(DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)) = 0 --если даты совпадают, то сравниваем по миллисекундам
 									,DATEDIFF(MINUTE, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn)
 									,DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)))  --иначе сравниваем по дням
 																				
 				,RegistrationMessage.ControllerReactedOn
 			FROM (
 				SELECT --RegistrationMessage - даты ожидания ответа от участника и даты доставки пакета от контроллера по каждому DocumentUid
-					RequestMessage.MessageUid AS MessageUid
-					,RequestMessage.SenderGuid AS Controller
-					,RequestMessage.RecipientGuid  AS Member
-					,RequestMessage.MaxReactedOn   AS ControllerReactedOn
-					,ResponseMessage.MinPackageDelivaredOn   AS MemberDelivaredOn
+					RequestMessage.MessageUid					AS MessageUid
+					,RequestMessage.SenderGuid					AS Controller
+					,RequestMessage.RecipientGuid				AS Member
+					,RequestMessage.MaxReactedOn				AS ControllerReactedOn
+					,ResponseMessage.MinPackageDelivaredOn		AS MemberDelivaredOn
 				FROM (
 					SELECT  --RequestMessage - Зарегистрированные документы/ТК, ожидающие уведомления в период очета по каждому участнику по каждому uid  документа
 						ConfirmationControl.MessageUid
@@ -294,8 +301,8 @@ INNER JOIN (
 						ON #tmp_ValidationLog.LogId = ConfirmationControl.ValidatingLog
 					WHERE
 						ConfirmationControl.RequestCount = 1
-						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) < DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
+						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
 						--AND ConfirmationControl.PackageDelivaredOn >=  '2021-03-01' --начало периода отчета
 						--AND ConfirmationControl.PackageDelivaredOn < '2021-04-01' --конец периода отчета
 						--AND #tmp_ValidationLog.Incoming = 1 --смотрим входящие участнику документы
@@ -337,7 +344,7 @@ INNER JOIN (
 				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
 				END 
 			> 0 
-			AND CheckMessageComplete.DataDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DataDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+			AND CheckMessageComplete.DateDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
 			OR (CASE
 				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
 				THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
@@ -350,7 +357,7 @@ INNER JOIN (
 		ON Member.Guid = ScoreForMessage.Member
 	GROUP BY 
 		Member.Guid
-) as MemberScoreP7
+) AS MemberScoreP7
 	ON MemberScoreP7.MemberGuid =FormatScore.MemberGuid 
 INNER JOIN Member
 	ON Member.Guid = FormatScore.MemberGuid COLLATE SQL_Latin1_General_CP1_CI_AS

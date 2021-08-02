@@ -17,29 +17,54 @@
       <Query>
         <DataSourceName>MedonomFull</DataSourceName>
         <QueryParameters>
-          <QueryParameter Name="@DataStart">
-            <Value>=Parameters!DataStart.Value</Value>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
           </QueryParameter>
-          <QueryParameter Name="@DataEnd">
-            <Value>=Parameters!DataEnd.Value</Value>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
           </QueryParameter>
         </QueryParameters>
-        <CommandText>--DROP TABLE #tmp_Packages
---DROP TABLE #ScoreReceipt
---DROP TABLE #ScoreNotifications
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-06-01'
+-------------------------------------------------------------------
+
 IF OBJECT_ID('tempdb..#tmp_Packages') is not null
 	DROP TABLE #tmp_Packages
 IF OBJECT_ID('tempdb..#ScoreReceipt') is not null
 	DROP TABLE #ScoreReceipt
 IF OBJECT_ID('tempdb..#ScoreNotifications') is not null
 	DROP TABLE #ScoreNotifications
-CREATE TABLE #tmp_Packages (LogId BIGINT PRIMARY KEY, PackageId INT, ReceivedOn DATETIME2(7) NULL)
-CREATE TABLE #ScoreReceipt (PackageIdR INT, MemberResponseMessagerR NVARCHAR(255), MessageTypeR NVARCHAR(255), PackageDelivaredOnR DATETIME2(7), TotalMessageR INT, RequieredR INT, ResponsedR INT)
-CREATE TABLE #ScoreNotifications (PackageIdN INT, MemberResponseMessagerN NVARCHAR(255), MessageTypeN NVARCHAR(255), PackageDelivaredOnN DATETIME2(7), TotalMessageN INT, RequieredN INT, ResponsedN INT)
+
+CREATE TABLE #tmp_Packages (
+							LogId BIGINT PRIMARY KEY
+							,PackageId INT
+							,ReceivedOn DATETIME2(7) NULL
+						)
+CREATE TABLE #ScoreReceipt (
+							PackageIdR INT
+							,MemberResponseMessagerR CHAR(36)
+							,MessageTypeR NVARCHAR(255)
+							,PackageDelivaredOnR DATETIME2(7)
+							,TotalMessageR INT
+							,RequieredR INT
+							,ResponsedR INT
+						)
+CREATE TABLE #ScoreNotifications (
+							PackageIdN INT
+							,MemberResponseMessagerN CHAR(36)
+							,MessageTypeN NVARCHAR(255)
+							,PackageDelivaredOnN DATETIME2(7)
+							,TotalMessageN INT
+							,RequieredN INT
+							,ResponsedN INT
+						)
 
 
 INSERT INTO #tmp_Packages  
-	SELECT -- ActualLogs = актуальные пакеты в периоде отчёта
+	SELECT -- ActualLogs = актуальные пакеты с последним логом
 		ReportPacks.LogId
 		,ReportPacks.Id as PackageId
 		,ReportPacks.ReceivedOn
@@ -50,12 +75,12 @@ INSERT INTO #tmp_Packages
 		FROM	
 			ValidationLog
 		WHERE 
-			Success = 1
+			Success = 1 --????
 		GROUP BY
 			Package
 	) AS ActualDates
 	INNER JOIN (
-		SELECT -- ReportPacks = все обработанные (processed = 1) пакеты в периоде отчёта 
+		SELECT -- ReportPacks = все обработанные (processed = 1) пакеты
 			ValidationLog.Id AS LogId
 			,Package.Id
 			,Package.ValidatedOn
@@ -65,27 +90,25 @@ INSERT INTO #tmp_Packages
 		INNER JOIN ValidationLog
 			ON ValidationLog.Package = Package.Id
 		WHERE
-			--Package.ReceivedOn &gt;=  @DataStart --начало периода отчета
-			--AND Package.ReceivedOn &lt; @DataEnd --конец периода отчета
 			--Package.Incoming = 1 --только исходящие пакеты 
 			Package.Processed = 1 --только обработанные пакеты
 	) AS ReportPacks
 		ON ActualDates.Max_Package = ReportPacks.Id
 		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
 
+
 INSERT INTO #ScoreReceipt
 	SELECT		
 		PackageIdR
-		,Member.Name
+		,Member.Guid
 		,MessageTypeR
 		,PackageDelivaredOnR
 		,[TotalMessageR]
 		,[RequieredR]
 		,[ResponsedR]
 	FROM (
-		SELECT -- ScoreReceipt
+		SELECT -- ScoreReceipt --оценка соблюдения регламента отправки техн. ЭС (сравнение дат ожидания квитанции и ее фактического поступления)
 			 RequestMessage.PackageId			AS PackageIdR
-			 --,Member.Name						AS MemberResponseMessagerR
 			,RequestMessage.RecipientGuid		AS MemberResponseMessagerR
 			,RequestMessage.MessageType			AS MessageTypeR
 			,RequestMessage.PackageDelivaredOn  AS PackageDelivaredOnR
@@ -113,34 +136,28 @@ INSERT INTO #ScoreReceipt
 			FROM (
 				SELECT  --AllRequestMessage - Все документы/ТК, ожидающие квитанции (или просто входящие квитанции)
 					MessageUid
+					,ValidatingLog
 					,SenderGuid
 					,MessageType
 					,RecipientGuid
-					,MAX(PackageDelivaredOn) AS PackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
+					,PackageDelivaredOn
+					,MAX(PackageDelivaredOn) OVER (PARTITION BY  MessageUid
+													,SenderGuid
+													,RecipientGuid
+													,MessageType
+												) AS MinPackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
 				FROM 
 					ConfirmationControl --WHERE Request = 1 отсутсвует, ибо мы смотрим ВСЕ входящие учаснику пакеты
-				GROUP BY
-					MessageUid
-					,SenderGuid
-					,RecipientGuid
-					,MessageType
 			) AS AllRequestMessage
-			INNER JOIN ConfirmationControl
-				ON ConfirmationControl.PackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
-				AND ConfirmationControl.MessageUid = AllRequestMessage.MessageUid
-				AND ConfirmationControl.SenderGuid = AllRequestMessage.SenderGuid
-				AND ConfirmationControl.RecipientGuid = AllRequestMessage.RecipientGuid
-				AND ConfirmationControl.MessageType = AllRequestMessage.MessageType
 			INNER JOIN #tmp_Packages
-				ON #tmp_Packages.LogId = ConfirmationControl.ValidatingLog
+				ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 			WHERE
-				--#tmp_Packages.ReceivedOn &gt;=  '2021-02-10' --начало периода отчета
-				--AND #tmp_Packages.ReceivedOn &lt; '2021-03-11' --конец периода отчета
-				--ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-				--AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета	
-				#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-				AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета	
+				--ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+				--AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета	
+				#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+				AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета	
 				AND AllRequestMessage.PackageDelivaredOn is not null
+				AND AllRequestMessage.MinPackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
 			GROUP BY 
 				AllRequestMessage.MessageUid
 				,AllRequestMessage.SenderGuid
@@ -148,6 +165,7 @@ INSERT INTO #ScoreReceipt
 				,AllRequestMessage.RecipientGuid
 				,AllRequestMessage.PackageDelivaredOn
 		) AS RequestMessage
+
 		LEFT OUTER JOIN (
 			SELECT		--ResponseMessage - Все квитанции, отправленные в ответ на документы/ТК, с номерами пакетов
 				MAX(#tmp_Packages.PackageId) AS PackageId --MAX берем, потому что может опять при объединении совпасть sender, repicient, messUid и даже ResponseDelivaredOn
@@ -158,30 +176,25 @@ INSERT INTO #ScoreReceipt
 			FROM (
 				SELECT --AllResponseMessage - Все квитанции, отправленные в ответ на документы/ТК
 					MessageUid
+					,ValidatingLog
 					,SenderGuid
 					,RecipientGuid
 					,MessageType
-					,MIN(PackageDelivaredOn) AS ResponseDelivaredOn --если более 1 одинаковой отправки квитанции (sender, Mess.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи
+					,PackageDelivaredOn AS ResponseDelivaredOn
+					,MIN(PackageDelivaredOn) OVER (PARTITION BY  MessageUid
+																,SenderGuid
+																,RecipientGuid
+																,MessageType
+													) AS MinResponseDelivaredOn --если более 1 одинаковой отправки квитанции (sender, Mess.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи
 				FROM 
 					ConfirmationControl
 				WHERE
 					ResponseCount = 1
-					--AND SenderGuid = '853dResponseMessage228-05e8-4ResponseMessage45-92ee-19deResponseMessageef3039f'
-				GROUP BY
-					MessageUid
-					,SenderGuid
-					,RecipientGuid
-					,MessageType
 			) AS AllResponseMessage
-
-			INNER JOIN ConfirmationControl
-				ON ConfirmationControl.PackageDelivaredOn = AllResponseMessage.ResponseDelivaredOn
-				AND ConfirmationControl.MessageUid = AllResponseMessage.MessageUid
-				AND ConfirmationControl.SenderGuid = AllResponseMessage.SenderGuid
-				AND ConfirmationControl.RecipientGuid = AllResponseMessage.RecipientGuid
-				AND ConfirmationControl.MessageType = AllResponseMessage.MessageType
 			INNER JOIN #tmp_Packages
-				ON #tmp_Packages.LogId = ConfirmationControl.ValidatingLog
+				ON #tmp_Packages.LogId = AllResponseMessage.ValidatingLog
+			WHERE
+				AllResponseMessage.MinResponseDelivaredOn = AllResponseMessage.ResponseDelivaredOn
 			GROUP BY				
 				AllResponseMessage.MessageUid
 				,AllResponseMessage.SenderGuid
@@ -191,6 +204,7 @@ INSERT INTO #ScoreReceipt
 			ON RequestMessage.MessageUid = ResponseMessage.MessageUid 
 			AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
 			AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
+
 		WHERE 
 			(CASE
 				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
@@ -203,7 +217,7 @@ INSERT INTO #ScoreReceipt
 						THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
 						ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
 						END
-					is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DataDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+					is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
 	
 			OR (CASE
 				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
@@ -227,9 +241,8 @@ INSERT INTO #ScoreNotifications
 		,[RequieredN]
 		,[ResponsedN]
 	FROM (
-		SELECT -- ScoreNotifications
+		SELECT -- ScoreNotifications  = оценка соблюдения регламента отправки техн. ЭС (сравнение дат ожидания уведомления и его фактического поступления)
 			RequestMessage.PackageId			AS PackageIdN
-			--,Member.Name						AS MemberResponseMessagerN
 			,RequestMessage.RecipientGuid		AS MemberResponseMessagerN
 			,RequestMessage.MessageType			AS MessageTypeN
 			,RequestMessage.PackageDelivaredOn	AS PackageDelivaredOnN
@@ -261,34 +274,26 @@ INSERT INTO #ScoreNotifications
 			FROM (
 				SELECT  --AllRequestMessage - Все документы/ТК, ожидающие уведомления (или просто входящие уведомлния)
 					DocumentUid
+					,ValidatingLog
 					,SenderGuid
-					,MessageType
 					,RecipientGuid
-					,MAX(PackageDelivaredOn) AS PackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
-				FROM 
+					,MessageType
+					,PackageDelivaredOn
+					,MAX(PackageDelivaredOn) OVER (PARTITION BY  DocumentUid
+																,SenderGuid
+																,RecipientGuid
+																,MessageType
+													) AS MinPackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
+				FROM  
 					RegistrationControl --WHERE Request = 1 отсутсвует, ибо мы смотрим ВСЕ входящие учаснику пакеты
-				GROUP BY
-					DocumentUid
-					,SenderGuid
-					,RecipientGuid
-					,MessageType
 			) AS AllRequestMessage
-			INNER JOIN RegistrationControl
-				ON RegistrationControl.PackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
-				AND RegistrationControl.DocumentUid = AllRequestMessage.DocumentUid
-				AND RegistrationControl.SenderGuid = AllRequestMessage.SenderGuid
-				AND RegistrationControl.RecipientGuid = AllRequestMessage.RecipientGuid
-				AND RegistrationControl.MessageType = AllRequestMessage.MessageType
 			INNER JOIN #tmp_Packages
-				ON #tmp_Packages.LogId = RegistrationControl.ValidatingLog
+				ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 			WHERE
-				--#tmp_Packages.ReceivedOn &gt;=  '2021-02-10' --начало периода отчета
-				--AND #tmp_Packages.ReceivedOn &lt; '2021-03-11' --конец периода отчета
-				--ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-				--AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета	
-				#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-				AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета									
+				#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+				AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета									
 				AND AllRequestMessage.PackageDelivaredOn is not null
+				AND AllRequestMessage.PackageDelivaredOn = AllRequestMessage.MinPackageDelivaredOn
 			GROUP BY
 				AllRequestMessage.DocumentUid 
 				,AllRequestMessage.SenderGuid
@@ -306,30 +311,25 @@ INSERT INTO #ScoreNotifications
 			FROM (
 				SELECT --AllResponseMessage - Все уведомления, отправленные в ответ на документы/ТК
 					DocumentUid
+					,ValidatingLog
 					,SenderGuid
-					,MessageType
 					,RecipientGuid
-					,MIN(PackageDelivaredOn) AS ResponseDelivaredOn --если более 1 одинаковой отправки квитанции (sender, Mess.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи
+					,MessageType
+					,PackageDelivaredOn AS ResponseDelivaredOn
+					,MIN(PackageDelivaredOn) OVER (PARTITION BY  DocumentUid
+																,SenderGuid
+																,RecipientGuid
+																,MessageType
+													) AS MinResponseDelivaredOn --если более 1 одинаковой отправки уведомления (sender, Mess.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи				
 				FROM 
 					RegistrationControl
 				WHERE
 					ResponseCount = 1
-					--AND SenderGuid = '853dResponseMessage228-05e8-4ResponseMessage45-92ee-19deResponseMessageef3039f'
-				GROUP BY
-					DocumentUid
-					,SenderGuid
-					,RecipientGuid
-					,MessageType
 			) AS AllResponseMessage
-
-			INNER JOIN RegistrationControl
-				ON RegistrationControl.PackageDelivaredOn = AllResponseMessage.ResponseDelivaredOn
-				AND RegistrationControl.DocumentUid = AllResponseMessage.DocumentUid
-				AND RegistrationControl.SenderGuid = AllResponseMessage.SenderGuid
-				AND RegistrationControl.RecipientGuid = AllResponseMessage.RecipientGuid
-				AND RegistrationControl.MessageType = AllResponseMessage.MessageType
 			INNER JOIN #tmp_Packages
-				ON #tmp_Packages.LogId = RegistrationControl.ValidatingLog
+				ON #tmp_Packages.LogId = AllResponseMessage.ValidatingLog
+			WHERE
+				AllResponseMessage.ResponseDelivaredOn = AllResponseMessage.MinResponseDelivaredOn
 			GROUP BY 			
 				AllResponseMessage.DocumentUid
 				,AllResponseMessage.SenderGuid
@@ -351,7 +351,7 @@ INSERT INTO #ScoreNotifications
 						THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
 						ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
 						END
-					is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DataDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+					is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
 	
 	
 			OR (CASE
@@ -365,35 +365,65 @@ INSERT INTO #ScoreNotifications
 		ON Member.Guid = FinalScoreNotifications.MemberResponseMessagerN
 
 SELECT
-	#ScoreReceipt.MemberResponseMessagerR
-	--,#ScoreReceipt.PackageIdR
-	--,#ScoreReceipt.MessageTypeR
-	--,#ScoreReceipt.PackageDelivaredOnR
-	,SUM(ISNULL(#ScoreReceipt.[TotalMessageR], 0))			AS TotalMessageR
-	,SUM(ISNULL(#ScoreReceipt.[RequieredR], 0))				AS RequieredR
-	,SUM(ISNULL(#ScoreReceipt.[ResponsedR], 0))				AS ResponsedR
-	,SUM(ISNULL(#ScoreNotifications.[TotalMessageN], 0))	AS TotalMessageN
-	,SUM(ISNULL(#ScoreNotifications.[RequieredN], 0))		AS RequieredN
-	,SUM(ISNULL(#ScoreNotifications.[ResponsedN], 0))		AS ResponsedN
-FROM #ScoreNotifications
-FULL OUTER JOIN #ScoreReceipt
-	ON #ScoreReceipt.PackageIdR = #ScoreNotifications.PackageIdN
-WHERE 
-	#ScoreReceipt.PackageIdR IS NOT NULL 
-	OR (MemberResponseMessagerR IS NOT NULL AND #ScoreReceipt.PackageIdR IS NULL)
-GROUP BY 
-	#ScoreReceipt.MemberResponseMessagerR
---ORDER BY MemberResponseMessagerR
-</CommandText>
+	DENSE_RANK() OVER (ORDER BY Score DESC) AS Rank
+	,*
+FROM (
+	SELECT
+		Member.Name AS MemberResponseMessagerR
+		,Score = Round(100*(CAST(ResponsedR AS FLOAT)/IIF(RequieredR = 0, 1, RequieredR)+ CAST(ResponsedN AS FLOAT)/IIF(RequieredN = 0, 1, RequieredN))/2, 2)
+		--,#ScoreReceipt.PackageIdR
+		--,#ScoreReceipt.MessageTypeR
+		--,#ScoreReceipt.PackageDelivaredOnR
+		,TotalMessageR
+		,RequieredR
+		,ResponsedR
+		,TotalMessageN
+		,RequieredN
+		,ResponsedN
+	FROM (
+		SELECT --Объединяем оценку соблюдения отправки уведомлений и квитанций воедино
+			#ScoreReceipt.MemberResponseMessagerR
+			--,#ScoreReceipt.PackageIdR
+			--,#ScoreReceipt.MessageTypeR
+			--,#ScoreReceipt.PackageDelivaredOnR
+			,SUM(ISNULL(#ScoreReceipt.[TotalMessageR], 0))			AS TotalMessageR
+			,SUM(ISNULL(#ScoreReceipt.[RequieredR], 0))				AS RequieredR
+			,SUM(ISNULL(#ScoreReceipt.[ResponsedR], 0))				AS ResponsedR
+			,SUM(ISNULL(#ScoreNotifications.[TotalMessageN], 0))	AS TotalMessageN
+			,SUM(ISNULL(#ScoreNotifications.[RequieredN], 0))		AS RequieredN
+			,SUM(ISNULL(#ScoreNotifications.[ResponsedN], 0))		AS ResponsedN
+		FROM #ScoreNotifications
+		FULL OUTER JOIN #ScoreReceipt
+			ON #ScoreReceipt.PackageIdR = #ScoreNotifications.PackageIdN
+		WHERE 
+			#ScoreReceipt.PackageIdR IS NOT NULL 
+			OR (MemberResponseMessagerR IS NOT NULL AND #ScoreReceipt.PackageIdR IS NULL)
+		GROUP BY 
+			#ScoreReceipt.MemberResponseMessagerR
+		--ORDER BY MemberResponseMessagerR
+	) AS Report3
+	INNER JOIN Member
+		ON Member.Guid = Report3.MemberResponseMessagerR COLLATE SQL_Latin1_General_CP1_CI_AS
+	WHERE
+		Member.Active = 1
+) AS Final_Rating</CommandText>
       </Query>
       <Fields>
         <Field Name="MemberResponseMessagerR">
           <DataField>MemberResponseMessagerR</DataField>
           <rd:TypeName>System.String</rd:TypeName>
         </Field>
+        <Field Name="Rank">
+          <DataField>Rank</DataField>
+          <rd:TypeName>System.Int64</rd:TypeName>
+        </Field>
         <Field Name="RequieredR">
           <DataField>RequieredR</DataField>
           <rd:TypeName>System.Int32</rd:TypeName>
+        </Field>
+        <Field Name="Score">
+          <DataField>Score</DataField>
+          <rd:TypeName>System.Double</rd:TypeName>
         </Field>
         <Field Name="TotalMessageR">
           <DataField>TotalMessageR</DataField>
@@ -444,9 +474,8 @@ GROUP BY
             <rd:WatermarkTextbox>Title</rd:WatermarkTextbox>
             <rd:DefaultName>ReportTitle</rd:DefaultName>
             <Top>0mm</Top>
-            <Left>0.13625cm</Left>
             <Height>10.16mm</Height>
-            <Width>262.24709mm</Width>
+            <Width>283.69534mm</Width>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -464,7 +493,7 @@ GROUP BY
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(Parameters!DataStart.Value, "dd MMM yyyy")</Value>
+                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
                     <Style>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
@@ -477,9 +506,9 @@ GROUP BY
             </Paragraphs>
             <rd:DefaultName>DataStart</rd:DefaultName>
             <Top>11.92389mm</Top>
-            <Left>37.12793mm</Left>
-            <Height>5.29445mm</Height>
-            <Width>26.28138mm</Width>
+            <Left>34.00154mm</Left>
+            <Height>5.29444mm</Height>
+            <Width>31.56433mm</Width>
             <ZIndex>1</ZIndex>
             <Style>
               <Border>
@@ -498,7 +527,7 @@ GROUP BY
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DataEnd.Value)), "dd MMM yyyy")</Value>
+                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)), "dd MMMM yyyy")</Value>
                     <Style>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
@@ -511,9 +540,9 @@ GROUP BY
             </Paragraphs>
             <rd:DefaultName>DataEnd</rd:DefaultName>
             <Top>11.92389mm</Top>
-            <Left>69.95714mm</Left>
+            <Left>71.76092mm</Left>
             <Height>5.29444mm</Height>
-            <Width>53.55952mm</Width>
+            <Width>40.65119mm</Width>
             <ZIndex>2</ZIndex>
             <Style>
               <Border>
@@ -543,7 +572,7 @@ GROUP BY
             </Paragraphs>
             <rd:DefaultName>Textbox59</rd:DefaultName>
             <Top>11.92389mm</Top>
-            <Left>1.36251mm</Left>
+            <Left>0.00001mm</Left>
             <Height>5.29444mm</Height>
             <Width>30.02708mm</Width>
             <ZIndex>3</ZIndex>
@@ -575,9 +604,9 @@ GROUP BY
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
             <Top>11.92389mm</Top>
-            <Left>31.38959mm</Left>
+            <Left>30.02709mm</Left>
             <Height>5.29445mm</Height>
-            <Width>5.73834mm</Width>
+            <Width>3.97445mm</Width>
             <ZIndex>4</ZIndex>
             <Style>
               <Border>
@@ -606,9 +635,9 @@ GROUP BY
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>63.76208mm</Left>
-            <Height>5.29445mm</Height>
+            <Top>11.9239mm</Top>
+            <Left>65.56587mm</Left>
+            <Height>5.29444mm</Height>
             <Width>6.19505mm</Width>
             <ZIndex>5</ZIndex>
             <Style>
@@ -625,7 +654,7 @@ GROUP BY
             <TablixBody>
               <TablixColumns>
                 <TablixColumn>
-                  <Width>25.42333mm</Width>
+                  <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
                   <Width>62.41209mm</Width>
@@ -634,16 +663,16 @@ GROUP BY
                   <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>23.01249mm</Width>
-                </TablixColumn>
-                <TablixColumn>
                   <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
                   <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>26.39916mm</Width>
+                  <Width>25mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
                   <Width>25mm</Width>
@@ -714,7 +743,6 @@ GROUP BY
                                   <Value>=Fields!MemberResponseMessagerR.Value</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
-                                    <FontWeight>Bold</FontWeight>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -729,11 +757,11 @@ GROUP BY
                                 <Drillthrough>
                                   <ReportName>/Reports/Report_builder.Report_3.2</ReportName>
                                   <Parameters>
-                                    <Parameter Name="DataStart">
-                                      <Value>=Parameters!DataStart.Value</Value>
+                                    <Parameter Name="DateStart">
+                                      <Value>=Parameters!DateStart.Value</Value>
                                     </Parameter>
-                                    <Parameter Name="DataEnd">
-                                      <Value>=Parameters!DataEnd.Value</Value>
+                                    <Parameter Name="DateEnd">
+                                      <Value>=Parameters!DateEnd.Value</Value>
                                     </Parameter>
                                     <Parameter Name="Member">
                                       <Value>=Fields!MemberResponseMessagerR.Value</Value>
@@ -752,9 +780,6 @@ GROUP BY
                               <Style>Solid</Style>
                               <Width>1pt</Width>
                             </TopBorder>
-                            <BottomBorder>
-                              <Style>None</Style>
-                            </BottomBorder>
                             <PaddingLeft>2pt</PaddingLeft>
                             <PaddingRight>2pt</PaddingRight>
                             <PaddingTop>2pt</PaddingTop>
@@ -825,8 +850,9 @@ GROUP BY
                                 <TextRun>
                                   <Value>=Fields!TotalMessageR.Value</Value>
                                   <Style>
+                                    <FontStyle>Italic</FontStyle>
                                     <FontFamily>Tahoma</FontFamily>
-                                    <FontWeight>Bold</FontWeight>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -843,13 +869,10 @@ GROUP BY
                               <Style>None</Style>
                             </Border>
                             <TopBorder>
-                              <Color>#4e648a</Color>
                               <Style>Solid</Style>
                               <Width>1pt</Width>
                             </TopBorder>
                             <BottomBorder>
-                              <Color>#4e648a</Color>
-                              <Style>None</Style>
                               <Width>1pt</Width>
                             </BottomBorder>
                             <LeftBorder>
@@ -877,6 +900,7 @@ GROUP BY
                                   <Value>=Fields!RequieredR.Value</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -922,6 +946,7 @@ GROUP BY
                                   <Value>=Fields!ResponsedR.Value</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -966,8 +991,9 @@ GROUP BY
                                 <TextRun>
                                   <Value>=Fields!TotalMessageN.Value</Value>
                                   <Style>
+                                    <FontStyle>Italic</FontStyle>
                                     <FontFamily>Tahoma</FontFamily>
-                                    <FontWeight>Bold</FontWeight>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -1018,6 +1044,7 @@ GROUP BY
                                   <Value>=Fields!RequieredN.Value</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -1063,6 +1090,7 @@ GROUP BY
                                   <Value>=Fields!ResponsedN.Value</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -1455,9 +1483,9 @@ GROUP BY
                                   <TextRun>
                                     <Value>Всего ЭС</Value>
                                     <Style>
+                                      <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <FontWeight>Bold</FontWeight>
                                       <Color>Gray</Color>
                                     </Style>
                                   </TextRun>
@@ -1690,9 +1718,9 @@ GROUP BY
                                   <TextRun>
                                     <Value>Всего ЭС</Value>
                                     <Style>
+                                      <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <FontWeight>Bold</FontWeight>
                                       <Color>Gray</Color>
                                     </Style>
                                   </TextRun>
@@ -1867,16 +1895,11 @@ GROUP BY
                   </Group>
                   <SortExpressions>
                     <SortExpression>
-                      <Value>=(Fields!ResponsedR.Value/IIF(Fields!RequieredR.Value=0, 1, Fields!RequieredR.Value)+ Fields!ResponsedN.Value/IIF(Fields!RequieredN.Value = 0,1, Fields!RequieredN.Value))/2</Value>
+                      <Value>=IIF(Fields!RequieredN.Value + Fields!RequieredR.Value = 0, 0, 1)</Value>
                       <Direction>Descending</Direction>
                     </SortExpression>
                     <SortExpression>
-                      <Value>=Fields!RequieredR.Value</Value>
-                      <Direction>Descending</Direction>
-                    </SortExpression>
-                    <SortExpression>
-                      <Value>=Fields!TotalMessageR.Value</Value>
-                      <Direction>Descending</Direction>
+                      <Value>=Fields!Rank.Value</Value>
                     </SortExpression>
                     <SortExpression>
                       <Value>=Fields!MemberResponseMessagerR.Value</Value>
@@ -1891,10 +1914,10 @@ GROUP BY
             <RepeatColumnHeaders>true</RepeatColumnHeaders>
             <FixedColumnHeaders>true</FixedColumnHeaders>
             <DataSetName>Report1</DataSetName>
-            <Top>18.27668mm</Top>
-            <Left>1.36252mm</Left>
+            <Top>17.92389mm</Top>
+            <Left>0.00002mm</Left>
             <Height>17.57667mm</Height>
-            <Width>262.24707mm</Width>
+            <Width>262.41209mm</Width>
             <ZIndex>6</ZIndex>
             <Style>
               <Border>
@@ -1903,17 +1926,17 @@ GROUP BY
             </Style>
           </Tablix>
         </ReportItems>
-        <Height>35.85335mm</Height>
+        <Height>35.50056mm</Height>
         <Style>
           <Border>
             <Style>None</Style>
           </Border>
         </Style>
       </Body>
-      <Width>263.60959mm</Width>
+      <Width>283.69534mm</Width>
       <Page>
         <PageFooter>
-          <Height>7.76111mm</Height>
+          <Height>8.11389mm</Height>
           <PrintOnFirstPage>true</PrintOnFirstPage>
           <PrintOnLastPage>true</PrintOnLastPage>
           <ReportItems>
@@ -1934,10 +1957,10 @@ GROUP BY
                 </Paragraph>
               </Paragraphs>
               <rd:DefaultName>ExecutionTime</rd:DefaultName>
-              <Top>1.41111mm</Top>
-              <Left>212.80958mm</Left>
+              <Top>1.76389mm</Top>
+              <Left>211.44709mm</Left>
               <Height>6.35mm</Height>
-              <Width>50.8mm</Width>
+              <Width>50.96502mm</Width>
               <Style>
                 <Border>
                   <Style>None</Style>
@@ -1965,8 +1988,8 @@ GROUP BY
                 </Paragraph>
               </Paragraphs>
               <rd:DefaultName>Textbox87</rd:DefaultName>
-              <Top>1.41111mm</Top>
-              <Left>184.98542mm</Left>
+              <Top>1.76389mm</Top>
+              <Left>183.62293mm</Left>
               <Height>6.35mm</Height>
               <Width>27.47138mm</Width>
               <ZIndex>1</ZIndex>
@@ -2001,7 +2024,7 @@ GROUP BY
     </ReportSection>
   </ReportSections>
   <ReportParameters>
-    <ReportParameter Name="DataStart">
+    <ReportParameter Name="DateStart">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>
@@ -2010,7 +2033,7 @@ GROUP BY
       </DefaultValue>
       <Prompt>Дата начала</Prompt>
     </ReportParameter>
-    <ReportParameter Name="DataEnd">
+    <ReportParameter Name="DateEnd">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>

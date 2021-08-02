@@ -17,31 +17,39 @@
       <Query>
         <DataSourceName>MedonomFull</DataSourceName>
         <QueryParameters>
-          <QueryParameter Name="@DataStart">
-            <Value>=Parameters!DataStart.Value</Value>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
           </QueryParameter>
-          <QueryParameter Name="@DataEnd">
-            <Value>=Parameters!DataEnd.Value</Value>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@Recipient">
+            <Value>=Parameters!Recipient.Value</Value>
           </QueryParameter>
         </QueryParameters>
-        <CommandText>--DECLARE @DataStart DateTime2
---DECLARE @DataEnd DateTime2
---SET @DataStart = '2021-03-01'
---SET @DataEnd = '2021-04-01'
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--DECLARE @Recipient nvarchar(255)
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-06-01'
+--SET @Recipient = '1D04CA3E-DF1A-0CB4-C325-6EF4003CA2AB' --Минцифры России
+-------------------------------------------------------------------
+
 
 IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
 
 CREATE TABLE #Tmp (
-					PackageId INT
-					,LogId INT 
-					,MemberGuid nvarchar(255)
+					PackageId INT PRIMARY KEY
+					,LogId BIGINT 
+					,SenderGuid char(36)
 					,PackageXml nvarchar(255)
 					,PackageXmlVersion nvarchar(255)
 					,ContainerXml nvarchar(255)
 					,ContainerXmlVersion nvarchar(255)
 					,Type INT
-					,Success BIT
+					--,Success BIT
 )
 
 INSERT INTO #Tmp
@@ -52,183 +60,164 @@ Type =
 	3 -- документ
 	4 -- ТК
 */
-	SELECT --ActualPackages = предыдущая таблица ActualPackages  с указанием типа пакета
-		ActualPackages.PackageId
-		,ActualPackages.LogId
-		,Member.Guid AS MemberGuid
-		,ActualPackages.PackageXml
-		,IIF(ActualPackages.PackageXmlVersion is null AND ActualPackages.PackageId is not null, 'x', PackageXmlVersion) AS PackageXmlVersion
-		,ActualPackages.ContainerXml
-		,ActualPackages.ContainerXmlVersion
-		,CASE 
-			WHEN PackageType.Type = 3 AND ActualPackages.ContainerXml is null
-				THEN 3				--Документ
-			WHEN PackageType.Type = 3 AND ActualPackages.ContainerXml is not null
-				THEN 4				--ТК
-			ELSE
-				PackageType.Type
-			END AS Type
-		,ActualPackages.Success
-	FROM (
-		SELECT   --PackageType = определяем тип пакетов (не учитывая период отчета)
-			ValidationLog
-			,MAX(Type) AS Type
-		FROM (
-			SELECT --PackageType = определяем: какие критерии есть в оценке пакета. Исходя из них, сделаем вывод о типе
-				ValidationLog
-				,MemberGuid
-				,CASE 
-					WHEN Criterion = '3.4'
-						THEN 3				--ТК/Документ
-					WHEN Criterion = '4.1'
-						THEN 2				--Уведомление
-					WHEN Criterion = '5.1'	
-						THEN 1				--Квитанция
-					END AS Type
-			FROM Score
-			WHERE
-				Criterion = '3.4'
-				OR Criterion = '4.1'
-				OR Criterion = '5.1'
-		) AS CheckPackageType
+SELECT --ActualPackagesWithType = обработанные пакеты с последним логом в период отчета с указанием типа пакета
+	DISTINCT
+	PackageId
+	,LogId
+	--,Member.Guid AS MemberGuid
+	,SenderGuid
+	,PackageXml
+	,PackageXmlVersion
+	,ContainerXml
+	,ContainerXmlVersion
+	,PackageType = CASE 
+						WHEN ConfirmationControl.MessageType = N'Транспортный контейнер'
+							THEN 4
+						WHEN ConfirmationControl.MessageType = N'Документ'
+							THEN 3
+						WHEN ConfirmationControl.MessageType = N'Уведомление'
+							THEN 2
+						WHEN ConfirmationControl.MessageType = N'Квитанция'
+							THEN 1
+						ELSE NULL
+						END
+	--,Success
+FROM(
+	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
+		ActualLog.PackageId
+		,ActualLog.Max_ValidatedOn
+		,ProcessedPackage.LogId
+		,ProcessedPackage.PackageXml
+		,ProcessedPackage.PackageXmlVersion
+		,ProcessedPackage.ContainerXml
+		,ProcessedPackage.ContainerXmlVersion
+		--,ProcessedPackage.Success
+	FROM(
+		SELECT -- ActualLog = последний лог по пакету
+			ValidationLog.Package	AS PackageId
+			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
+		FROM ValidationLog		
 		GROUP BY
-			CheckPackageType.ValidationLog
-	) AS PackageType
-
-	RIGHT JOIN (
-		SELECT --ActualPackages = обработанные исходящие пакеты в период отчета с последним логом
-			ActualLog.PackageId
-			,ActualLog.Max_ValidatedOn
-			,ProcessedPackage.MemberGuid
-			,ProcessedPackage.LogId
-			,ProcessedPackage.PackageXml
-			,ProcessedPackage.PackageXmlVersion
-			,ProcessedPackage.ContainerXml
-			,ProcessedPackage.ContainerXmlVersion
-			,ProcessedPackage.Success
-		FROM(
-			SELECT -- ActualLog = последний лог по пакету
-				ValidationLog.Package	AS PackageId
-				,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
-			FROM ValidationLog		
-			GROUP BY
-				ValidationLog.Package
-		) AS ActualLog
-		INNER JOIN (
-			SELECT --ProcessedPackage = обработанные исходящие пакеты в период отчета
-				ValidationLog.Package
-				,ValidationLog.Id AS LogId
-				,ValidationLog.ValidatedOn
-				,ValidationLog.Success
-				,Batch.MemberGuid
-				,PackageXml
-				,PackageXmlVersion
-				,ContainerXml
-				,ContainerXmlVersion
-			FROM Package
-			INNER JOIN ValidationLog
-				ON ValidationLog.Package = Package.Id
-			INNER JOIN Batch
-				ON Batch.Id = Package.Batch
-			WHERE
-				Processed = 1
-				AND Incoming = 0
-				AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-				AND Package.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --конец периода отчета
-		) AS ProcessedPackage
-			ON ProcessedPackage.Package = ActualLog.PackageId
-			AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
-	) AS ActualPackages
-		ON PackageType.ValidationLog = ActualPackages.LogId 
-	RIGHT JOIN Member
-		ON Member.Guid = ActualPackages.MemberGuid
-	WHERE  
-		Member.Active = 1
+			ValidationLog.Package
+	) AS ActualLog
+	INNER JOIN (
+		SELECT --ProcessedPackage = обработанные пакеты в период отчета
+			ValidationLog.Package
+			,ValidationLog.Id AS LogId
+			,ValidationLog.ValidatedOn
+			--,ValidationLog.Success
+			,PackageXml
+			,PackageXmlVersion
+			,ContainerXml
+			,ContainerXmlVersion
+		FROM Package
+		INNER JOIN ValidationLog
+			ON ValidationLog.Package = Package.Id
+		WHERE
+			Processed = 1
+			--AND Incoming = 0
+			AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			AND Package.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
+	) AS ProcessedPackage
+		ON ProcessedPackage.Package = ActualLog.PackageId
+		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
+) AS ActualPackagesWithType
+INNER JOIN ConfirmationControl
+	ON ConfirmationControl.ValidatingLog = ActualPackagesWithType.LogId
+WHERE
+	ConfirmationControl.RecipientGuid = @Recipient
 
 SELECT
-	Member.Name			AS Member
-	,Member.Type		AS MemberType
-	,'Score' = IIF(ED.[AllContainer] &lt;&gt; 0 AND ED.[2.7.1] &lt;&gt; 0, 100*(0 + CAST(ISNULL(ED.[2.7.1],0) AS FLOAT)/CAST(ED.[AllContainer] AS FLOAT)), 0)					
-	,EM.[AllMessage]	AS AllMessage
-	,EM.[2.7.1]			AS EM_2_7_1
-	,EM.[2.7]			AS EM_2_7
-	,EM.[2.6]			AS EM_2_6
-	,EM.[2.5]			AS EM_2_5
-	,EM.[2.2]			AS EM_2_2
-	,EM.[2.0]			AS EM_2_0
-	,EM.[x]				AS EM_X
-	,ED.[AllContainer]
-	,ED.[2.7.1]			AS ED_2_7_1
-	,ED.[2.7]			AS ED_2_7
-	,ED.[NoContainer]	AS ED_NoContainer
-	,ED.[x]				AS ED_X
-FROM (
-	SELECT --EM = оценка перехода на 2.7.1 в период отчета по ЭС
-			MemberEM
-			,'AllMessage' = ISNULL(VersionMessage.[2.7.1], 0) + ISNULL(VersionMessage.[2.7], 0) + ISNULL(VersionMessage.[2.6], 0) + ISNULL(VersionMessage.[2.5], 0) + ISNULL(VersionMessage.[2.2], 0) + ISNULL(VersionMessage.[2.0], 0) + ISNULL(VersionMessage.[x], 0)
-			,ISNULL(VersionMessage.[2.7.1], 0) AS '2.7.1'
-			,ISNULL(VersionMessage.[2.7], 0)  AS '2.7'
-			,ISNULL(VersionMessage.[2.6], 0) AS '2.6'
-			,ISNULL(VersionMessage.[2.5], 0)  AS '2.5'
-			,ISNULL(VersionMessage.[2.2], 0)  AS '2.2'
-			,ISNULL(VersionMessage.[2.0], 0)  AS '2.0'
-			,ISNULL(VersionMessage.[x], 0)  AS 'x'
+	DENSE_RANK() OVER(PARTITION BY MemberType ORDER BY Score DESC) AS Rank	
+	,*
+FROM(
+	SELECT
+		Member.Name			AS Member
+		,Member.Type		AS MemberType
+		,'Score' = IIF(ED.[AllContainer] &lt;&gt; 0 AND ED.[2.7.1] &lt;&gt; 0, 100*(0 + CAST(ISNULL(ED.[2.7.1],0) AS FLOAT)/CAST(ED.[AllContainer] AS FLOAT)), 0)					
+		,ISNULL(EM.[AllMessage], 0)		AS AllMessage
+		,ISNULL(EM.[2.7.1], 0)			AS EM_2_7_1
+		,ISNULL(EM.[2.7], 0)			AS EM_2_7
+		,ISNULL(EM.[2.6], 0)			AS EM_2_6
+		,ISNULL(EM.[2.5], 0)			AS EM_2_5
+		,ISNULL(EM.[2.2], 0)			AS EM_2_2
+		,ISNULL(EM.[2.0], 0)			AS EM_2_0
+		,ISNULL(EM.[x], 0)				AS EM_X
+		,ISNULL(ED.[AllContainer], 0)	AS AllContainer
+		,ISNULL(ED.[2.7.1], 0)			AS ED_2_7_1
+		,ISNULL(ED.[2.7], 0)			AS ED_2_7
+		,ISNULL(ED.[NoContainer], 0)	AS ED_NoContainer
+		,ISNULL(ED.[x], 0)				AS ED_X
 	FROM (
-		SELECT 
-			#Tmp.MemberGuid AS MemberEM
-			,PackageXmlVersion
-			,COUNT(*) AS CountPackageXmlVersion
-		FROM #Tmp
-		GROUP BY 
-			#Tmp.MemberGuid
-			,PackageXmlVersion
-	)x
-	PIVOT (
-	MAX(CountPackageXmlVersion)
-		FOR PackageXmlVersion
-		IN([2.7.1],[2.7],[2.6],[2.5],[2.2],[2.0], [x])
-	) AS VersionMessage
-) AS EM
-LEFT JOIN (
-	SELECT --EM = оценка перехода на 2.7.1 в период отчета по ЭС
-			MemberED
-			,'AllContainer' = ISNULL(VersionContainer.[2.7.1], 0) + ISNULL(VersionContainer.[2.7], 0) + ISNULL(VersionContainer.[NoContainer], 0) + ISNULL(VersionContainer.[x], 0)
-			,ISNULL(VersionContainer.[2.7.1], 0) AS '2.7.1' 
-			,ISNULL(VersionContainer.[2.7], 0) AS '2.7'
-			,ISNULL(VersionContainer.[NoContainer], 0)  AS 'NoContainer'
-			,ISNULL(VersionContainer.[x], 0)  AS 'x'
-	FROM (
-		SELECT
-			MemberED
-			,ContainerXmlVersion
-			,COUNT(*) AS CountContainerXmlVersion
+		SELECT --EM = оценка перехода на 2.7.1 в период отчета по ЭС
+				MemberEM
+				,'AllMessage' = ISNULL(VersionMessage.[2.7.1], 0) + ISNULL(VersionMessage.[2.7], 0) + ISNULL(VersionMessage.[2.6], 0) + ISNULL(VersionMessage.[2.5], 0) + ISNULL(VersionMessage.[2.2], 0) + ISNULL(VersionMessage.[2.0], 0) + ISNULL(VersionMessage.[x], 0)
+				,VersionMessage.[2.7.1]	AS '2.7.1'
+				,VersionMessage.[2.7]	AS '2.7'
+				,VersionMessage.[2.6]	AS '2.6'
+				,VersionMessage.[2.5]	AS '2.5'
+				,VersionMessage.[2.2]	AS '2.2'
+				,VersionMessage.[2.0]	AS '2.0'
+				,VersionMessage.[x]		AS 'x'
 		FROM (
-			SELECT 
-				#Tmp.MemberGuid AS MemberED
-				,CASE 
-					WHEN #Tmp.Type = 3 				--Документ
-						THEN 'NoContainer'
-					WHEN #Tmp.Type = 4 AND #Tmp.ContainerXmlVersion is null
-						THEN 'x'				--ТК
-					ELSE
-						#Tmp.ContainerXmlVersion
-					END 
-				AS ContainerXmlVersion			
+			SELECT --Определяем кол-во пакетов по каждой версии формата
+				#Tmp.SenderGuid AS MemberEM
+				,PackageXmlVersion
+				,COUNT(*) AS CountPackageXmlVersion
 			FROM #Tmp
-		) AS Containers
-		GROUP BY 
-			MemberED
-			,ContainerXmlVersion
-	)x
-	PIVOT (
-	MAX(CountContainerXmlVersion)
-		FOR ContainerXmlVersion
-		IN([2.7.1],[2.7],[NoContainer],[x])
-	) AS VersionContainer
-) AS ED
-	ON ED.MemberED = EM.MemberEM
-INNER JOIN Member
-	ON Member.Guid = EM.MemberEM COLLATE SQL_Latin1_General_CP1_CI_AS
+			GROUP BY 
+				#Tmp.SenderGuid
+				,PackageXmlVersion
+		)x
+		PIVOT (
+		MAX(CountPackageXmlVersion)
+			FOR PackageXmlVersion
+			IN([2.7.1],[2.7],[2.6],[2.5],[2.2],[2.0], [x])
+		) AS VersionMessage
+	) AS EM
+	LEFT JOIN (
+		SELECT --ED = оценка перехода на 2.7.1 в период отчета по ЭД
+				MemberED
+				,'AllContainer' = ISNULL(VersionContainer.[2.7.1], 0) + ISNULL(VersionContainer.[2.7], 0) + ISNULL(VersionContainer.[NoContainer], 0) + ISNULL(VersionContainer.[x], 0)
+				,VersionContainer.[2.7.1]		AS '2.7.1' 
+				,VersionContainer.[2.7]			AS '2.7'
+				,VersionContainer.[NoContainer] AS 'NoContainer'
+				,VersionContainer.[x]			AS 'x'
+		FROM (
+			SELECT --Определяем кол-во пакетов по каждой версии
+				MemberED
+				,ContainerXmlVersion
+				,COUNT(*) AS CountContainerXmlVersion
+			FROM (
+				SELECT --Containers = определяем формата пакета
+					#Tmp.SenderGuid AS MemberED
+					,CASE 
+						WHEN #Tmp.Type = 3 				--Документ
+							THEN 'NoContainer'
+						WHEN #Tmp.Type = 4 AND #Tmp.ContainerXmlVersion is null
+							THEN 'x'					--ТК без формата
+						ELSE
+							#Tmp.ContainerXmlVersion	--ТК
+						END 
+					AS ContainerXmlVersion			
+				FROM #Tmp
+			) AS Containers
+			GROUP BY 
+				MemberED
+				,ContainerXmlVersion
+		)x
+		PIVOT (
+		MAX(CountContainerXmlVersion)
+			FOR ContainerXmlVersion
+			IN([2.7.1],[2.7],[NoContainer],[x])
+		) AS VersionContainer
+	) AS ED
+		ON ED.MemberED = EM.MemberEM
+	RIGHT JOIN Member
+		ON Member.Guid = ISNULL(EM.MemberEM, ED.MemberED) COLLATE SQL_Latin1_General_CP1_CI_AS
+	WHERE  
+		Member.Active = 1
+) AS Finaly_Table
 </CommandText>
       </Query>
       <Fields>
@@ -236,13 +225,17 @@ INNER JOIN Member
           <DataField>Member</DataField>
           <rd:TypeName>System.String</rd:TypeName>
         </Field>
-        <Field Name="Score">
-          <DataField>Score</DataField>
-          <rd:TypeName>System.Double</rd:TypeName>
+        <Field Name="Rank">
+          <DataField>Rank</DataField>
+          <rd:TypeName>System.Int64</rd:TypeName>
         </Field>
         <Field Name="MemberType">
           <DataField>MemberType</DataField>
           <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="Score">
+          <DataField>Score</DataField>
+          <rd:TypeName>System.Double</rd:TypeName>
         </Field>
         <Field Name="AllMessage">
           <DataField>AllMessage</DataField>
@@ -298,6 +291,27 @@ INNER JOIN Member
         </Field>
       </Fields>
     </DataSet>
+    <DataSet Name="GetRecipient">
+      <Query>
+        <DataSourceName>MedonomFull</DataSourceName>
+        <CommandText>Select
+	Name
+,guid
+from Member
+WHERE ACTIVE = 1
+order by name asc</CommandText>
+      </Query>
+      <Fields>
+        <Field Name="Name">
+          <DataField>Name</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="guid">
+          <DataField>guid</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+      </Fields>
+    </DataSet>
   </DataSets>
   <ReportSections>
     <ReportSection>
@@ -326,7 +340,7 @@ INNER JOIN Member
             <rd:DefaultName>ReportTitle</rd:DefaultName>
             <Top>0mm</Top>
             <Height>10.16mm</Height>
-            <Width>402.02339mm</Width>
+            <Width>399.75774mm</Width>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -344,9 +358,8 @@ INNER JOIN Member
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(Parameters!DataStart.Value, "dd MMM yyyy")</Value>
+                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
                   </TextRun>
@@ -357,10 +370,10 @@ INNER JOIN Member
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>DataStart</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>33.23836mm</Left>
+            <Top>11.9239mm</Top>
+            <Left>32.97121mm</Left>
             <Height>5.85738mm</Height>
-            <Width>23.75805mm</Width>
+            <Width>31.57305mm</Width>
             <ZIndex>1</ZIndex>
             <Style>
               <Border>
@@ -379,9 +392,8 @@ INNER JOIN Member
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DataEnd.Value)),  "dd MMM yyyy")</Value>
+                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)),  "dd MMMM yyyy")</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
                     </Style>
                   </TextRun>
@@ -392,10 +404,10 @@ INNER JOIN Member
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>63.74016mm</Left>
-            <Height>5.85739mm</Height>
-            <Width>52.1484mm</Width>
+            <Top>11.9239mm</Top>
+            <Left>71.28801mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>44.46973mm</Width>
             <ZIndex>2</ZIndex>
             <Style>
               <Border>
@@ -416,7 +428,6 @@ INNER JOIN Member
                   <TextRun>
                     <Value>Период отчета:</Value>
                     <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
                       <FontWeight>Bold</FontWeight>
                     </Style>
                   </TextRun>
@@ -428,7 +439,7 @@ INNER JOIN Member
             <Top>11.92389mm</Top>
             <Left>0mm</Left>
             <Height>5.85738mm</Height>
-            <Width>28.34669mm</Width>
+            <Width>28.63773mm</Width>
             <ZIndex>3</ZIndex>
             <Style>
               <Border>
@@ -448,9 +459,7 @@ INNER JOIN Member
                 <TextRuns>
                   <TextRun>
                     <Value>c</Value>
-                    <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
-                    </Style>
+                    <Style />
                   </TextRun>
                 </TextRuns>
                 <Style>
@@ -459,10 +468,10 @@ INNER JOIN Member
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>28.34669mm</Left>
+            <Top>11.92388mm</Top>
+            <Left>28.63773mm</Left>
             <Height>5.85739mm</Height>
-            <Width>4.89167mm</Width>
+            <Width>4.33348mm</Width>
             <ZIndex>4</ZIndex>
             <Style>
               <Border>
@@ -585,19 +594,16 @@ INNER JOIN Member
             <TablixBody>
               <TablixColumns>
                 <TablixColumn>
-                  <Width>21.13082mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
                   <Width>69.75774mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>32.34565mm</Width>
+                  <Width>32mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>31.61458mm</Width>
-                </TablixColumn>
-                <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>32mm</Width>
                 </TablixColumn>
                 <TablixColumn>
                   <Width>25mm</Width>
@@ -609,28 +615,31 @@ INNER JOIN Member
                   <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>38.22917mm</Width>
-                </TablixColumn>
-                <TablixColumn>
-                  <Width>23.01249mm</Width>
-                </TablixColumn>
-                <TablixColumn>
                   <Width>25mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>36mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>24.79459mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>24.15334mm</Width>
+                  <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>25mm</Width>
+                  <Width>21mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>21mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>21mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>21mm</Width>
                 </TablixColumn>
               </TablixColumns>
               <TablixRows>
@@ -646,7 +655,7 @@ INNER JOIN Member
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=RunningValue(Round(Fields!Score.Value, 2), CountDistinct, "MemberTypeEM")</Value>
+                                  <Value>=IIF(Fields!AllMessage.Value = 0 AND Fields!AllContainer.Value =0, "-", Fields!Rank.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontWeight>Bold</FontWeight>
@@ -784,11 +793,11 @@ INNER JOIN Member
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=Fields!AllContainer.Value</Value>
+                                  <Value>=IIf(Fields!AllContainer.Value = 0, "-", Fields!AllContainer.Value)</Value>
                                   <Style>
                                     <FontStyle>Italic</FontStyle>
                                     <FontFamily>Tahoma</FontFamily>
-                                    <Format>0;(0)</Format>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -828,6 +837,7 @@ INNER JOIN Member
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontWeight>Bold</FontWeight>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -867,7 +877,7 @@ INNER JOIN Member
                                   <Value>=Microsoft.VisualBasic.Interaction.IIf(Fields!ED_2_7.Value = 0, "-", Fields!ED_2_7.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
-                                    <Format>0;(0)</Format>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -903,9 +913,10 @@ INNER JOIN Member
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=Microsoft.VisualBasic.Interaction.IIf(Fields!ED_NoContainer.Value = 0, "-", Fields!ED_NoContainer.Value)</Value>
+                                  <Value>=IIf(Fields!ED_NoContainer.Value = 0, "-", Fields!ED_NoContainer.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -950,6 +961,7 @@ INNER JOIN Member
                                   <Value>=Microsoft.VisualBasic.Interaction.IIf(Fields!ED_X.Value = 0, "-", Fields!ED_X.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -991,10 +1003,11 @@ INNER JOIN Member
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=Fields!AllMessage.Value</Value>
+                                  <Value>=IIf(Fields!AllMessage.Value = 0, "-", Fields!AllMessage.Value)</Value>
                                   <Style>
                                     <FontStyle>Italic</FontStyle>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -1035,6 +1048,7 @@ INNER JOIN Member
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontWeight>Bold</FontWeight>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -1073,6 +1087,7 @@ INNER JOIN Member
                                   <Value>=IIf(Fields!EM_2_7.Value = 0, "-", Fields!EM_2_7.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -1111,6 +1126,7 @@ INNER JOIN Member
                                   <Value>=IIf(Fields!EM_2_6.Value = 0, "-", Fields!EM_2_6.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -1150,6 +1166,7 @@ INNER JOIN Member
                                   <Value>=IIf(Fields!EM_2_5.Value = 0, "-", Fields!EM_2_5.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -1189,6 +1206,7 @@ INNER JOIN Member
                                   <Value>=IIf(Fields!EM_2_2.Value = 0, "-", Fields!EM_2_2.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -1228,6 +1246,7 @@ INNER JOIN Member
                                   <Value>=IIf(Fields!EM_2_0.Value = 0, "-", Fields!EM_2_0.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -1270,6 +1289,7 @@ INNER JOIN Member
                                   <Value>=IIf(Fields!EM_X.Value = 0, "-", Fields!EM_X.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -3104,6 +3124,18 @@ INNER JOIN Member
                   <TablixMembers>
                     <TablixMember>
                       <Group Name="RowGroup" />
+                      <SortExpressions>
+                        <SortExpression>
+                          <Value>=IIF(Fields!AllMessage.Value = 0 AND Fields!AllContainer.Value =0, 0, 1)</Value>
+                          <Direction>Descending</Direction>
+                        </SortExpression>
+                        <SortExpression>
+                          <Value>=Fields!Rank.Value</Value>
+                        </SortExpression>
+                        <SortExpression>
+                          <Value>=Fields!Member.Value</Value>
+                        </SortExpression>
+                      </SortExpressions>
                       <Visibility>
                         <ToggleItem>MemberTypeEM1</ToggleItem>
                       </Visibility>
@@ -3127,10 +3159,10 @@ INNER JOIN Member
                 <Value>=Fields!Member.Value</Value>
               </SortExpression>
             </SortExpressions>
-            <Top>18.48684mm</Top>
+            <Top>25.40254mm</Top>
             <Left>0mm</Left>
-            <Height>26.74259mm</Height>
-            <Width>490.03838mm</Width>
+            <Height>26.74258mm</Height>
+            <Width>462.75774mm</Width>
             <ZIndex>5</ZIndex>
             <Style>
               <Border>
@@ -3146,9 +3178,7 @@ INNER JOIN Member
                 <TextRuns>
                   <TextRun>
                     <Value>по</Value>
-                    <Style>
-                      <FontFamily>Yu Gothic UI</FontFamily>
-                    </Style>
+                    <Style />
                   </TextRun>
                 </TextRuns>
                 <Style>
@@ -3157,9 +3187,9 @@ INNER JOIN Member
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>56.99641mm</Left>
-            <Height>5.85739mm</Height>
+            <Top>11.9239mm</Top>
+            <Left>64.54426mm</Left>
+            <Height>5.85737mm</Height>
             <Width>6.74375mm</Width>
             <ZIndex>6</ZIndex>
             <Style>
@@ -3172,18 +3202,82 @@ INNER JOIN Member
               <PaddingBottom>2pt</PaddingBottom>
             </Style>
           </Textbox>
+          <Textbox Name="Textbox61">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>Получатель:</Value>
+                    <Style>
+                      <FontWeight>Bold</FontWeight>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style />
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox59</rd:DefaultName>
+            <Top>17.78127mm</Top>
+            <Left>0mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>28.63773mm</Width>
+            <ZIndex>7</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="DataStart2">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>=Lookup(Parameters!Recipient.Value, Fields!guid.Value, Fields!Name.Value, "GetRecipient")</Value>
+                    <Style />
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Left</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>DataStart</rd:DefaultName>
+            <Top>17.78127mm</Top>
+            <Left>28.63773mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>87.12001mm</Width>
+            <ZIndex>8</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
         </ReportItems>
-        <Height>45.22943mm</Height>
+        <Height>52.14512mm</Height>
         <Style>
           <Border>
             <Style>None</Style>
           </Border>
         </Style>
       </Body>
-      <Width>490.03838mm</Width>
+      <Width>462.75774mm</Width>
       <Page>
         <PageFooter>
-          <Height>7.05556mm</Height>
+          <Height>8.11389mm</Height>
           <PrintOnFirstPage>true</PrintOnFirstPage>
           <PrintOnLastPage>true</PrintOnLastPage>
           <ReportItems>
@@ -3206,10 +3300,10 @@ INNER JOIN Member
                 </Paragraph>
               </Paragraphs>
               <rd:DefaultName>ExecutionTime</rd:DefaultName>
-              <Top>0.70556mm</Top>
-              <Left>440.88504mm</Left>
+              <Top>1.76389mm</Top>
+              <Left>415.6044mm</Left>
               <Height>6.35mm</Height>
-              <Width>49.15334mm</Width>
+              <Width>47.15334mm</Width>
               <Style>
                 <Border>
                   <Style>None</Style>
@@ -3239,10 +3333,10 @@ INNER JOIN Member
                 </Paragraph>
               </Paragraphs>
               <rd:DefaultName>Textbox87</rd:DefaultName>
-              <Top>0.70556mm</Top>
-              <Left>391.09045mm</Left>
+              <Top>1.76389mm</Top>
+              <Left>380.75774mm</Left>
               <Height>6.35mm</Height>
-              <Width>49.79459mm</Width>
+              <Width>34.84666mm</Width>
               <ZIndex>1</ZIndex>
               <Style>
                 <Border>
@@ -3275,7 +3369,7 @@ INNER JOIN Member
     </ReportSection>
   </ReportSections>
   <ReportParameters>
-    <ReportParameter Name="DataStart">
+    <ReportParameter Name="DateStart">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>
@@ -3284,7 +3378,7 @@ INNER JOIN Member
       </DefaultValue>
       <Prompt>Дата начала</Prompt>
     </ReportParameter>
-    <ReportParameter Name="DataEnd">
+    <ReportParameter Name="DateEnd">
       <DataType>DateTime</DataType>
       <DefaultValue>
         <Values>
@@ -3292,6 +3386,18 @@ INNER JOIN Member
         </Values>
       </DefaultValue>
       <Prompt>Дата окончания</Prompt>
+    </ReportParameter>
+    <ReportParameter Name="Recipient">
+      <DataType>String</DataType>
+      <Nullable>true</Nullable>
+      <Prompt>Получатель</Prompt>
+      <ValidValues>
+        <DataSetReference>
+          <DataSetName>GetRecipient</DataSetName>
+          <ValueField>guid</ValueField>
+          <LabelField>Name</LabelField>
+        </DataSetReference>
+      </ValidValues>
     </ReportParameter>
   </ReportParameters>
   <Language>ru-RU</Language>
