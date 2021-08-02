@@ -1,8 +1,8 @@
 ---------------------------ѕј–јћ≈“–џ-------------------------------
---DECLARE @DataStart DateTime2
---DECLARE @DataEnd DateTime2
---SET @DataStart = '2021-04-01'
---SET @DataEnd = '2021-06-01'
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-06-01'
 -------------------------------------------------------------------
 
 IF OBJECT_ID('tempdb..#Tmp') is not null
@@ -10,7 +10,7 @@ IF OBJECT_ID('tempdb..#Tmp') is not null
 
 CREATE TABLE #Tmp (
 					PackageId INT PRIMARY KEY
-					,LogId INT 
+					,LogId BIGINT 
 					--,Success BIT
 )
 
@@ -21,7 +21,7 @@ INSERT INTO #Tmp
 		--,ProcessedPackage.Success
 	FROM(
 		SELECT -- ActualLog = последний лог по пакету
-			ValidationLog.Package	AS PackageId
+			ValidationLog.Package			AS PackageId
 			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
 		FROM ValidationLog		
 		GROUP BY
@@ -30,7 +30,7 @@ INSERT INTO #Tmp
 	INNER JOIN (
 		SELECT --ProcessedPackage = обработанные пакеты в период отчета
 			ValidationLog.Package
-			,ValidationLog.Id AS LogId
+			,ValidationLog.Id			AS LogId
 			,ValidationLog.ValidatedOn
 		FROM Package
 		INNER JOIN ValidationLog
@@ -38,8 +38,8 @@ INSERT INTO #Tmp
 		WHERE
 			Processed = 1
 			AND Incoming = 0 --только исход€щие пакеты
-			AND Package.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DataStart), DATEPART(MONTH, @DataStart), DATEPART(DAY, @DataStart), '0', '0', '0', '0') --начало периода отчета
-			AND Package.ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DataEnd), DATEPART(MONTH, @DataEnd), DATEPART(DAY, @DataEnd), '23', '59', '59', '0') --окончание периода отчета
+			AND Package.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			AND Package.ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --окончание периода отчета
 	) AS ProcessedPackage
 		ON ProcessedPackage.Package = ActualLog.PackageId
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
