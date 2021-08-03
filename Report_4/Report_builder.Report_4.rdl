@@ -1,0 +1,2524 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Report xmlns:rd="http://schemas.microsoft.com/SQLServer/reporting/reportdesigner" xmlns:cl="http://schemas.microsoft.com/sqlserver/reporting/2010/01/componentdefinition" xmlns="http://schemas.microsoft.com/sqlserver/reporting/2010/01/reportdefinition">
+  <AutoRefresh>0</AutoRefresh>
+  <DataSources>
+    <DataSource Name="MedonomFull">
+      <ConnectionProperties>
+        <DataProvider>SQL</DataProvider>
+        <ConnectString>Data Source=(local);Initial Catalog=medomon</ConnectString>
+        <IntegratedSecurity>true</IntegratedSecurity>
+      </ConnectionProperties>
+      <rd:SecurityType>Integrated</rd:SecurityType>
+      <rd:DataSourceID>ce7a0747-a387-427e-b0d3-0d747fc8b3bd</rd:DataSourceID>
+    </DataSource>
+  </DataSources>
+  <DataSets>
+    <DataSet Name="Report1">
+      <Query>
+        <DataSourceName>MedonomFull</DataSourceName>
+        <QueryParameters>
+          <QueryParameter Name="@DateStartCompare">
+            <Value>=Parameters!DateStartCompare.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@DateEndCompare">
+            <Value>=Parameters!DateEndCompare.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
+          </QueryParameter>
+        </QueryParameters>
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--DECLARE @DateStartCompare DateTime2
+--DECLARE @DateEndCompare DateTime2
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-04-30'
+--SET @DateStartCompare = '2021-03-01'
+--SET @DateEndCompare = '2021-03-31'
+-------------------------------------------------------------------
+
+IF OBJECT_ID('tempdb..#tmp_Packages') is not null
+	DROP TABLE #tmp_Packages
+IF OBJECT_ID('tempdb..#ScoreReceipt') is not null
+	DROP TABLE #ScoreReceipt
+IF OBJECT_ID('tempdb..#ScoreNotifications') is not null
+	DROP TABLE #ScoreNotifications
+
+CREATE TABLE #tmp_Packages (
+							LogId BIGINT PRIMARY KEY
+							,PackageId INT
+							,ReceivedOn DATETIME2(7) NULL
+							,Period INT
+						)
+CREATE TABLE #ScoreReceipt (
+							MemberR CHAR(36)
+							--,PackageDelivaredOnR DATETIME2(7)
+							--,TotalMessageR INT
+							,Sum_RequieredR INT
+							,Sum_ResponsedR INT
+							,PeriodR INT
+						)
+CREATE TABLE #ScoreNotifications (
+							MemberN CHAR(36)
+							--,PackageDelivaredOnN DATETIME2(7)
+							--,TotalMessageN INT
+							,Sum_RequieredN INT
+							,Sum_ResponsedN INT
+							,PeriodN INT
+						)
+
+
+INSERT INTO #tmp_Packages  
+	SELECT -- ActualLogs = актуальные пакеты с последним логом
+		ReportPacks.LogId
+		,ReportPacks.Id			AS PackageId
+		,ReportPacks.ReceivedOn
+		,CASE WHEN
+			(ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			AND ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета			
+			)
+			THEN 1 --период отчета
+		WHEN 
+			(ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0') --начало периода сравнения
+			AND ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '23', '59', '59', '0') --конец периода сравнения
+			) 
+			THEN 2 --период сравнения
+		ELSE 0 --Пакеты, не входящие в периоды очтета или сравнения
+		END AS Period
+	FROM (
+		SELECT -- ActualDates = актуальные даты логов пакетов. Если логи по пакету менялись, то берем последний обработанный лог
+			Package AS Max_Package
+			,MAX(ValidatedOn)	AS Max_ValidatedOn
+		FROM	
+			ValidationLog
+		WHERE 
+			Success = 1 --????
+		GROUP BY
+			Package
+	) AS ActualDates
+	INNER JOIN (
+		SELECT -- ReportPacks = все обработанные (processed = 1) пакеты
+			ValidationLog.Id	AS LogId
+			,Package.Id
+			,Package.ValidatedOn
+			,Package.ReceivedOn
+		FROM
+			Package
+		INNER JOIN ValidationLog
+			ON ValidationLog.Package = Package.Id
+		WHERE
+			--Package.Incoming = 1 --только исходящие пакеты 
+			Package.Processed = 1 --только обработанные пакеты
+	) AS ReportPacks
+		ON ActualDates.Max_Package = ReportPacks.Id
+		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
+
+
+INSERT INTO #ScoreReceipt
+	SELECT		--Кол-ва ожидающих квитанций ЭД и отправленных квитанций в период отчета и в период сравнения
+		MemberResponseMessagerR		AS MemberR
+		--,TotalMessageR
+		,SUM(RequieredR)			AS Sum_RequieredR --Кол-во ожидающих квитанций ЭД
+		,SUM(ResponsedR)			AS Sum_ResponsedR --Кол-во отправленных квитанций
+		,Period						AS PeriodR
+	FROM (
+		SELECT -- ScoreReceipt --оценка соблюдения регламента отправки техн. ЭС (сравнение дат ожидания квитанции и ее фактического поступления)
+			 RequestMessage.PackageId			AS PackageIdR
+			,RequestMessage.RecipientGuid		AS MemberResponseMessagerR
+			,RequestMessage.MessageType			AS MessageTypeR
+			,RequestMessage.PackageDelivaredOn  AS PackageDelivaredOnR
+			,RequestMessage.Period
+			,'TotalMessageR' = 1
+			,'RequieredR' = CASE WHEN 
+									RequestMessage.PackageDelivaredOn is not null 
+									AND RequestMessage.MessageType &lt;&gt; N'Квитанция'
+								THEN 1
+								ELSE 0
+								END
+			,'ResponsedR' = CASE WHEN 
+									ResponseMessage.ResponseDelivaredOn is not null
+									AND RequestMessage.MessageType &lt;&gt; N'Квитанция'
+								THEN 1
+								ELSE 0
+								END
+		FROM (
+			SELECT --RequestMessage - документы/ТК, ожидающие квитанции в периоды отчета (Period = 0) и сравнения (Period = 1)
+				MAX(#tmp_Packages.PackageId)	AS PackageId
+				,AllRequestMessage.MessageUid
+				,AllRequestMessage.SenderGuid
+				,AllRequestMessage.MessageType
+				,AllRequestMessage.RecipientGuid
+				,AllRequestMessage.PackageDelivaredOn
+				,Period
+			FROM (
+				SELECT  --AllRequestMessage - Все документы/ТК, ожидающие квитанции (или просто входящие квитанции)
+					MessageUid
+					,ValidatingLog
+					,SenderGuid
+					,MessageType
+					,RecipientGuid
+					,PackageDelivaredOn
+					,MAX(PackageDelivaredOn) OVER (PARTITION BY  MessageUid
+													,SenderGuid
+													,RecipientGuid
+													,MessageType
+												) AS MinPackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
+				FROM 
+					ConfirmationControl --WHERE Request = 1 отсутсвует, ибо мы смотрим ВСЕ входящие учаснику пакеты
+			) AS AllRequestMessage
+			INNER JOIN #tmp_Packages
+				ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
+			WHERE
+				#tmp_Packages.Period IN (1, 2) --ЭД попадают в период отчета или в период сравнения
+				AND AllRequestMessage.PackageDelivaredOn is not null
+				AND AllRequestMessage.MinPackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
+			GROUP BY 
+				AllRequestMessage.MessageUid
+				,AllRequestMessage.SenderGuid
+				,AllRequestMessage.MessageType
+				,AllRequestMessage.RecipientGuid
+				,AllRequestMessage.PackageDelivaredOn
+				,#tmp_Packages.Period
+		) AS RequestMessage
+
+		LEFT OUTER JOIN (
+			SELECT		--ResponseMessage - Все квитанции, отправленные в ответ на документы/ТК, с номерами пакетов
+				MAX(#tmp_Packages.PackageId)	AS PackageId --MAX берем, потому что может опять при объединении совпасть sender, repicient, messUid и даже ResponseDelivaredOn
+				,AllResponseMessage.MessageUid
+				,AllResponseMessage.SenderGuid
+				,AllResponseMessage.RecipientGuid
+				,AllResponseMessage.ResponseDelivaredOn
+			FROM (
+				SELECT --AllResponseMessage - Все квитанции, отправленные в ответ на документы/ТК
+					MessageUid
+					,ValidatingLog
+					,SenderGuid
+					,RecipientGuid
+					,MessageType
+					,PackageDelivaredOn		AS ResponseDelivaredOn
+					,MIN(PackageDelivaredOn) OVER (PARTITION BY  MessageUid
+																,SenderGuid
+																,RecipientGuid
+																,MessageType
+													) AS MinResponseDelivaredOn --если более 1 одинаковой отправки квитанции (sender, Mess.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи
+				FROM 
+					ConfirmationControl
+				WHERE
+					ResponseCount = 1
+			) AS AllResponseMessage
+			INNER JOIN #tmp_Packages
+				ON #tmp_Packages.LogId = AllResponseMessage.ValidatingLog
+			WHERE
+				AllResponseMessage.MinResponseDelivaredOn = AllResponseMessage.ResponseDelivaredOn
+			GROUP BY				
+				AllResponseMessage.MessageUid
+				,AllResponseMessage.SenderGuid
+				,AllResponseMessage.RecipientGuid
+				,AllResponseMessage.ResponseDelivaredOn
+		) AS ResponseMessage
+			ON RequestMessage.MessageUid = ResponseMessage.MessageUid 
+			AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
+			AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
+
+		WHERE 
+			(CASE
+				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+				END 
+			&gt; 0 
+			AND CASE
+					WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
+					THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+					ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+					END
+				is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+	
+			OR (CASE
+				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+				END
+			&lt;= 0 )
+	) AS ScoreReceipt
+GROUP BY
+	MemberResponseMessagerR
+	,Period
+
+
+INSERT INTO #ScoreNotifications
+	SELECT		--Кол-ва ожидающих уведомлений ЭД и отправленных уведомлений в период отчета и в период сравнения
+		MemberResponseMessagerN		AS MemberN
+		--,SUM([TotalMessageN])
+		,SUM(RequieredN)			AS Sum_RequieredN --Кол-во ожидающих уведомлений ЭД
+		,SUM(ResponsedN)			AS Sum_ResponsedN --Кол-во отправленных уведомлений
+		,Period						AS PeriodN
+	FROM (
+		SELECT -- ScoreNotifications  = оценка соблюдения регламента отправки техн. ЭС (сравнение дат ожидания уведомления и его фактического поступления)
+			RequestMessage.PackageId			AS PackageIdN
+			,RequestMessage.RecipientGuid		AS MemberResponseMessagerN
+			,RequestMessage.MessageType			AS MessageTypeN
+			,RequestMessage.PackageDelivaredOn	AS PackageDelivaredOnN
+			,Period
+			,'TotalMessageN' = CASE WHEN 
+										RequestMessage.MessageType = N'Квитанция'
+									THEN 0
+									ELSE 1
+									END
+			,'RequieredN' = CASE WHEN 
+									RequestMessage.PackageDelivaredOn is not null 
+									AND RequestMessage.MessageType &lt;&gt; N'Уведомление'
+								THEN 1
+								ELSE 0
+								END
+			,'ResponsedN' = CASE WHEN 
+									ResponseMessage.ResponseDelivaredOn is not null
+									AND RequestMessage.MessageType &lt;&gt; N'Уведомление'
+								THEN 1
+								ELSE 0
+								END
+		FROM (
+			SELECT --RequestMessage - документы/ТК, ожидающие уведомления в периоды отчета (Period = 0) и сравнения (Period = 1)
+				MAX(#tmp_Packages.PackageId)	AS PackageId
+				,AllRequestMessage.DocumentUid 
+				,AllRequestMessage.SenderGuid
+				,AllRequestMessage.MessageType
+				,AllRequestMessage.RecipientGuid
+				,AllRequestMessage.PackageDelivaredOn
+				,#tmp_Packages.Period
+			FROM (
+				SELECT  --AllRequestMessage - Все документы/ТК, ожидающие уведомления (или просто входящие уведомлния)
+					DocumentUid
+					,ValidatingLog
+					,SenderGuid
+					,RecipientGuid
+					,MessageType
+					,PackageDelivaredOn
+					,MAX(PackageDelivaredOn) OVER (PARTITION BY  DocumentUid
+																,SenderGuid
+																,RecipientGuid
+																,MessageType
+													) AS MinPackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
+				FROM  
+					RegistrationControl --WHERE Request = 1 отсутсвует, ибо мы смотрим ВСЕ входящие учаснику пакеты
+			) AS AllRequestMessage
+			INNER JOIN #tmp_Packages
+				ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
+			WHERE
+				#tmp_Packages.Period IN (1, 2) --ЭД попадают в период отчета или в период сравнения
+				AND AllRequestMessage.PackageDelivaredOn is not null
+				AND AllRequestMessage.PackageDelivaredOn = AllRequestMessage.MinPackageDelivaredOn
+			GROUP BY
+				AllRequestMessage.DocumentUid 
+				,AllRequestMessage.SenderGuid
+				,AllRequestMessage.MessageType
+				,AllRequestMessage.RecipientGuid
+				,AllRequestMessage.PackageDelivaredOn
+				,#tmp_Packages.Period
+		) AS RequestMessage
+		LEFT OUTER JOIN (
+			SELECT		--ResponseMessage - Все Уведомления, отправленные в ответ на документы/ТК, с номерами пакетов
+				MAX(#tmp_Packages.PackageId)	AS PackageId
+				,AllResponseMessage.DocumentUid
+				,AllResponseMessage.SenderGuid
+				,AllResponseMessage.RecipientGuid
+				,AllResponseMessage.ResponseDelivaredOn
+			FROM (
+				SELECT --AllResponseMessage - Все уведомления, отправленные в ответ на документы/ТК
+					DocumentUid
+					,ValidatingLog
+					,SenderGuid
+					,RecipientGuid
+					,MessageType
+					,PackageDelivaredOn AS ResponseDelivaredOn
+					,MIN(PackageDelivaredOn) OVER (PARTITION BY  DocumentUid
+																,SenderGuid
+																,RecipientGuid
+																,MessageType
+													) AS MinResponseDelivaredOn --если более 1 одинаковой отправки уведомления (sender, Mess.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи				
+				FROM 
+					RegistrationControl
+				WHERE
+					ResponseCount = 1
+			) AS AllResponseMessage
+			INNER JOIN #tmp_Packages
+				ON #tmp_Packages.LogId = AllResponseMessage.ValidatingLog
+			WHERE
+				AllResponseMessage.ResponseDelivaredOn = AllResponseMessage.MinResponseDelivaredOn
+			GROUP BY 			
+				AllResponseMessage.DocumentUid
+				,AllResponseMessage.SenderGuid
+				,AllResponseMessage.RecipientGuid
+				,AllResponseMessage.ResponseDelivaredOn
+		) AS ResponseMessage
+			ON RequestMessage.DocumentUid = ResponseMessage.DocumentUid 
+			AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
+			AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
+		WHERE 
+			(CASE
+				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
+				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+				END 
+			&gt; 0 
+			AND CASE
+						WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
+						THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
+						ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+						END
+					is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+	
+	
+			OR (CASE
+				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
+				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+				END
+			&lt;= 0 )
+	) AS FinalScoreNotifications	
+GROUP BY
+	MemberResponseMessagerN
+	,Period
+
+
+SELECT
+	DENSE_RANK() OVER (PARTITION BY 
+								MemberType
+								,IIF((Score_Period_1+Score_Period_2 = 0) OR (Score_Period_1 is null AND Score_Period_2 is null), 1, 0)
+						ORDER BY 
+								ROUND(100*(ISNULL(Score_Period_1, 0) - ISNULL(Score_Period_2, 0))/(1 + ABS(ISNULL(Score_Period_1, 0)) + ABS(ISNULL(Score_Period_2, 0))), 2) DESC
+						)	AS Rank
+	,ROUND(100*(ISNULL(Score_Period_1, 0) - ISNULL(Score_Period_2, 0))/(1 + ABS(ISNULL(Score_Period_1, 0)) + ABS(ISNULL(Score_Period_2, 0))), 2) AS ChangeDynamics
+	,*
+
+FROM (
+	SELECT
+		Member.Name
+		,Member.Type															AS MemberType
+		,ROUND(0.5*(Prop_Receipt_Period_1 + Prop_Notifications_Period_1), 2)	AS Score_Period_1
+		,ROUND(Prop_Receipt_Period_1, 2)										AS Prop_Receipt_Period_1
+		,ROUND(Prop_Notifications_Period_1, 2)									AS Prop_Notifications_Period_1
+		,ROUND(0.5*(Prop_Receipt_Period_2 + Prop_Notifications_Period_2), 2)	AS Score_Period_2
+		,ROUND(Prop_Receipt_Period_2, 2)										AS Prop_Receipt_Period_2
+		,ROUND(Prop_Notifications_Period_2, 2)									AS Prop_Notifications_Period_2
+	FROM(
+		SELECT
+			Member
+			,MAX([1])	AS Prop_Receipt_Period_1
+			,MAX([3])	AS Prop_Notifications_Period_1
+			,MAX([2])	AS Prop_Receipt_Period_2
+			,MAX([4])	AS Prop_Notifications_Period_2
+		FROM (
+			SELECT --Доля отправленных квитанция и уведомлений в периоды отчета и сравнения
+				#ScoreReceipt.MemberR									AS Member
+				--,SUM(ISNULL(#ScoreReceipt.[TotalMessageR], 0))		AS TotalMessageR
+				,IIF(#ScoreReceipt.Sum_ResponsedR &lt;&gt; 0	
+									,100*CAST(ISNULL(#ScoreReceipt.Sum_ResponsedR, 0) AS FLOAT)/#ScoreReceipt.Sum_RequieredR
+										,0)								AS Prop_Receipt			--Доля отправленных квитанций
+				--,SUM(ISNULL(#ScoreNotifications.[TotalMessageN], 0))	AS TotalMessageN
+				,IIF(#ScoreNotifications.Sum_ResponsedN &lt;&gt; 0	
+									,100*CAST(ISNULL(#ScoreNotifications.Sum_ResponsedN, 0) AS FLOAT)/#ScoreNotifications.Sum_RequieredN
+									,0)									AS Prop_Notifications	--Доля отправленных уведомлений
+				,PeriodR												AS PeriodR -- 1-период отчета; 2-период сравнения
+				,PeriodN + 2											AS PeriodN -- 3-период отчета; 4-период сравнения
+			FROM #ScoreNotifications
+			FULL OUTER JOIN #ScoreReceipt
+				ON #ScoreReceipt.MemberR = #ScoreNotifications.MemberN
+				AND #ScoreReceipt.PeriodR = #ScoreNotifications.PeriodN
+		) AS Prop_Notifications_and_Receipt
+		PIVOT(
+			MAX(Prop_Receipt)
+			FOR PeriodR
+			IN ([1], [2])
+		) AS Receipt_Pivot
+		PIVOT(
+			MAX(Prop_Notifications)
+			FOR PeriodN
+			IN ([3], [4])
+		) AS Notifications_Pivot
+		GROUP BY
+			Member
+	) AS Pivot_Stats
+	RIGHT JOIN Member
+		ON Member.Guid = Pivot_Stats.Member COLLATE SQL_Latin1_General_CP1_CI_AS
+	WHERE
+		Active = 1
+) AS Score_Stats</CommandText>
+      </Query>
+      <Fields>
+        <Field Name="ChangeDynamics">
+          <DataField>ChangeDynamics</DataField>
+          <rd:TypeName>System.Double</rd:TypeName>
+        </Field>
+        <Field Name="Rank">
+          <DataField>Rank</DataField>
+          <rd:TypeName>System.Int64</rd:TypeName>
+        </Field>
+        <Field Name="Name">
+          <DataField>Name</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="MemberType">
+          <DataField>MemberType</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="Score_Period_1">
+          <DataField>Score_Period_1</DataField>
+          <rd:TypeName>System.Double</rd:TypeName>
+        </Field>
+        <Field Name="Prop_Receipt_Period_1">
+          <DataField>Prop_Receipt_Period_1</DataField>
+          <rd:TypeName>System.Double</rd:TypeName>
+        </Field>
+        <Field Name="Prop_Notifications_Period_1">
+          <DataField>Prop_Notifications_Period_1</DataField>
+          <rd:TypeName>System.Double</rd:TypeName>
+        </Field>
+        <Field Name="Score_Period_2">
+          <DataField>Score_Period_2</DataField>
+          <rd:TypeName>System.Double</rd:TypeName>
+        </Field>
+        <Field Name="Prop_Receipt_Period_2">
+          <DataField>Prop_Receipt_Period_2</DataField>
+          <rd:TypeName>System.Double</rd:TypeName>
+        </Field>
+        <Field Name="Prop_Notifications_Period_2">
+          <DataField>Prop_Notifications_Period_2</DataField>
+          <rd:TypeName>System.Double</rd:TypeName>
+        </Field>
+      </Fields>
+    </DataSet>
+  </DataSets>
+  <ReportSections>
+    <ReportSection>
+      <Body>
+        <ReportItems>
+          <Textbox Name="ReportTitle">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>Динамика изменения оценки соблюдения регламентов отправки технологических ЭС участниками МЭДО</Value>
+                    <Style>
+                      <FontFamily>Yu Gothic UI Light</FontFamily>
+                      <FontSize>20pt</FontSize>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Left</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:WatermarkTextbox>Title</rd:WatermarkTextbox>
+            <rd:DefaultName>ReportTitle</rd:DefaultName>
+            <Top>0mm</Top>
+            <Height>10.16mm</Height>
+            <Width>349.71209mm</Width>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="DataStart">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
+                    <Style>
+                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Left</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>DataStart</rd:DefaultName>
+            <Top>11.92389mm</Top>
+            <Left>40.2554mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>31.57305mm</Width>
+            <ZIndex>1</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="DataEnd">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)), "dd MMMM yyyy")</Value>
+                    <Style>
+                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Left</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>DataEnd</rd:DefaultName>
+            <Top>11.92389mm</Top>
+            <Left>78.5722mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>72.83989mm</Width>
+            <ZIndex>2</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="Textbox59">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>Период отчета:</Value>
+                    <Style>
+                      <FontWeight>Bold</FontWeight>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style />
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox59</rd:DefaultName>
+            <Top>11.92389mm</Top>
+            <Left>0mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>35.36373mm</Width>
+            <ZIndex>3</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="Textbox60">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>c</Value>
+                    <Style />
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Right</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox60</rd:DefaultName>
+            <Top>11.92389mm</Top>
+            <Left>35.36373mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>4.89167mm</Width>
+            <ZIndex>4</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Tablix Name="Tablix5">
+            <TablixBody>
+              <TablixColumns>
+                <TablixColumn>
+                  <Width>21mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>62.41209mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>30mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>34mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>29mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>29mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>34mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>29mm</Width>
+                </TablixColumn>
+                <TablixColumn>
+                  <Width>29mm</Width>
+                </TablixColumn>
+              </TablixColumns>
+              <TablixRows>
+                <TablixRow>
+                  <Height>6mm</Height>
+                  <TablixCells>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox46">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value>=Fields!MemberType.Value</Value>
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <FontSize>11pt</FontSize>
+                                    <FontWeight>Bold</FontWeight>
+                                    <Color>#393939</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Left</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox46</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Color>#4e648a</Color>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Style>Solid</Style>
+                            </BottomBorder>
+                            <BackgroundColor>WhiteSmoke</BackgroundColor>
+                            <VerticalAlign>Middle</VerticalAlign>
+                            <PaddingLeft>20pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                        <ColSpan>2</ColSpan>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell />
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox48">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value />
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <FontWeight>Bold</FontWeight>
+                                    <Color>=IIF(Fields!ChangeDynamics.Value &gt;= 0, "Black", "Tomato")</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox48</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Color>#4e648a</Color>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Style>Solid</Style>
+                            </BottomBorder>
+                            <BackgroundColor>WhiteSmoke</BackgroundColor>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox49">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value />
+                                  <Style>
+                                    <FontStyle>Italic</FontStyle>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox49</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Color>#4e648a</Color>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Style>Solid</Style>
+                            </BottomBorder>
+                            <BackgroundColor>WhiteSmoke</BackgroundColor>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox54">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value />
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox54</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Color>#4e648a</Color>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Style>Solid</Style>
+                            </BottomBorder>
+                            <BackgroundColor>WhiteSmoke</BackgroundColor>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox55">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value />
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox55</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Color>#4e648a</Color>
+                              <Style>Solid</Style>
+                              <Width>1pt</Width>
+                            </BottomBorder>
+                            <RightBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>1pt</Width>
+                            </RightBorder>
+                            <BackgroundColor>WhiteSmoke</BackgroundColor>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox56">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value />
+                                  <Style>
+                                    <FontStyle>Italic</FontStyle>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox56</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Color>#4e648a</Color>
+                              <Style>Solid</Style>
+                              <Width>1pt</Width>
+                            </BottomBorder>
+                            <BackgroundColor>WhiteSmoke</BackgroundColor>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox57">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value />
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox57</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Color>#4e648a</Color>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Style>Solid</Style>
+                            </BottomBorder>
+                            <BackgroundColor>WhiteSmoke</BackgroundColor>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox58">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value />
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox58</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Color>#4e648a</Color>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Style>Solid</Style>
+                            </BottomBorder>
+                            <BackgroundColor>WhiteSmoke</BackgroundColor>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                  </TablixCells>
+                </TablixRow>
+                <TablixRow>
+                  <Height>6mm</Height>
+                  <TablixCells>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox110">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value>=IIF((Fields!Score_Period_1.Value = 0 OR IsNothing(Fields!Score_Period_1.Value) = TRUE ) AND ( Fields!Score_Period_2.Value= 0 OR IsNothing(Fields!Score_Period_2.Value) = TRUE ), "-",Fields!Rank.Value)</Value>
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <FontWeight>Bold</FontWeight>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox110</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                            </Border>
+                            <TopBorder>
+                              <Style>None</Style>
+                            </TopBorder>
+                            <BottomBorder>
+                              <Color>#4e648a</Color>
+                            </BottomBorder>
+                            <LeftBorder>
+                              <Style>None</Style>
+                            </LeftBorder>
+                            <RightBorder>
+                              <Style>None</Style>
+                            </RightBorder>
+                            <VerticalAlign>Middle</VerticalAlign>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="MemberName3">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value>=Fields!Name.Value</Value>
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style />
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>MemberName</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                            </Border>
+                            <TopBorder>
+                              <Style>None</Style>
+                            </TopBorder>
+                            <BottomBorder>
+                              <Color>#4e648a</Color>
+                            </BottomBorder>
+                            <LeftBorder>
+                              <Style>None</Style>
+                            </LeftBorder>
+                            <RightBorder>
+                              <Style>None</Style>
+                            </RightBorder>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox111">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value>=IIF((Fields!Score_Period_1.Value = 0 OR IsNothing(Fields!Score_Period_1.Value) = TRUE ) AND ( Fields!Score_Period_2.Value= 0 OR IsNothing(Fields!Score_Period_2.Value) = TRUE ), "-",Cstr(Fields!ChangeDynamics.Value)+" %")</Value>
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <FontWeight>Bold</FontWeight>
+                                    <Color>=IIF(Fields!ChangeDynamics.Value &gt;= 0, "Black", "Tomato")</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox111</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Color>#4e648a</Color>
+                              <Style>Solid</Style>
+                            </BottomBorder>
+                            <RightBorder>
+                              <Color>#e5e5e5</Color>
+                            </RightBorder>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Рейтинг12">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value>=IIF(IsNothing(Fields!Score_Period_1.Value) = TRUE, "-", Cstr(Fields!Score_Period_1.Value)+" %")</Value>
+                                  <Style>
+                                    <FontStyle>Italic</FontStyle>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <FontSize>9pt</FontSize>
+                                    <FontWeight>Bold</FontWeight>
+                                    <Format>0;(0)</Format>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <Style>
+                            <Border>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>1pt</Width>
+                            </BottomBorder>
+                            <VerticalAlign>Middle</VerticalAlign>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Рейтинг10">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value>=IIF(IsNothing(Fields!Score_Period_1.Value) = TRUE, "-", Cstr(Fields!Prop_Receipt_Period_1.Value)+" %")</Value>
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <FontSize>9pt</FontSize>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <Style>
+                            <Border>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                            </BottomBorder>
+                            <VerticalAlign>Middle</VerticalAlign>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Рейтинг11">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value>=IIF(IsNothing(Fields!Score_Period_1.Value) = TRUE, "-", Cstr(Fields!Prop_Notifications_Period_1.Value)+" %")</Value>
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <FontSize>9pt</FontSize>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <Style>
+                            <Border>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                            </BottomBorder>
+                            <RightBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                            </RightBorder>
+                            <VerticalAlign>Middle</VerticalAlign>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Рейтинг13">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value>=IIF(IsNothing(Fields!Score_Period_2.Value) = TRUE, "-", Cstr(Fields!Score_Period_2.Value)+" %")</Value>
+                                  <Style>
+                                    <FontStyle>Italic</FontStyle>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <FontSize>9pt</FontSize>
+                                    <FontWeight>Bold</FontWeight>
+                                    <Format>0;(0)</Format>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <Style>
+                            <Border>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>1pt</Width>
+                            </BottomBorder>
+                            <VerticalAlign>Middle</VerticalAlign>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox31">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value>=IIF(IsNothing(Fields!Score_Period_2.Value) = TRUE, "-", Cstr(Fields!Prop_Notifications_Period_2.Value)+" %")</Value>
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <FontSize>9pt</FontSize>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox31</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>1pt</Width>
+                            </BottomBorder>
+                            <VerticalAlign>Middle</VerticalAlign>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Рейтинг14">
+                          <CanGrow>true</CanGrow>
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value>=IIF(IsNothing(Fields!Score_Period_2.Value) = TRUE, "-", Cstr(Fields!Prop_Notifications_Period_2.Value)+" %")</Value>
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <FontSize>9pt</FontSize>
+                                    <Color>#4d4d4d</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <Style>
+                            <Border>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                            </BottomBorder>
+                            <VerticalAlign>Middle</VerticalAlign>
+                            <PaddingLeft>2pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                  </TablixCells>
+                </TablixRow>
+              </TablixRows>
+            </TablixBody>
+            <TablixColumnHierarchy>
+              <TablixMembers>
+                <TablixMember>
+                  <TablixHeader>
+                    <Size>5.82123mm</Size>
+                    <CellContents>
+                      <Textbox Name="Textbox172">
+                        <CanGrow>true</CanGrow>
+                        <KeepTogether>true</KeepTogether>
+                        <Paragraphs>
+                          <Paragraph>
+                            <TextRuns>
+                              <TextRun>
+                                <Value />
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>11pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                            </TextRuns>
+                            <Style>
+                              <TextAlign>Center</TextAlign>
+                            </Style>
+                          </Paragraph>
+                        </Paragraphs>
+                        <rd:DefaultName>Textbox172</rd:DefaultName>
+                        <Style>
+                          <Border>
+                            <Color>#4e648a</Color>
+                            <Style>Solid</Style>
+                          </Border>
+                          <TopBorder>
+                            <Color>White</Color>
+                          </TopBorder>
+                          <BottomBorder>
+                            <Style>None</Style>
+                          </BottomBorder>
+                          <LeftBorder>
+                            <Style>None</Style>
+                          </LeftBorder>
+                          <RightBorder>
+                            <Style>None</Style>
+                          </RightBorder>
+                          <BackgroundColor>White</BackgroundColor>
+                          <VerticalAlign>Middle</VerticalAlign>
+                          <PaddingLeft>2pt</PaddingLeft>
+                          <PaddingRight>2pt</PaddingRight>
+                          <PaddingTop>2pt</PaddingTop>
+                          <PaddingBottom>2pt</PaddingBottom>
+                        </Style>
+                      </Textbox>
+                    </CellContents>
+                  </TablixHeader>
+                  <TablixMembers>
+                    <TablixMember>
+                      <TablixHeader>
+                        <Size>12mm</Size>
+                        <CellContents>
+                          <Textbox Name="Textbox4">
+                            <CanGrow>true</CanGrow>
+                            <KeepTogether>true</KeepTogether>
+                            <Paragraphs>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>Место в рейтинге</Value>
+                                    <Style>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>11pt</FontSize>
+                                      <FontWeight>Bold</FontWeight>
+                                      <Color>Gray</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style>
+                                  <TextAlign>Center</TextAlign>
+                                </Style>
+                              </Paragraph>
+                            </Paragraphs>
+                            <rd:DefaultName>Textbox4</rd:DefaultName>
+                            <Style>
+                              <Border>
+                                <Color>#4e648a</Color>
+                                <Style>Solid</Style>
+                              </Border>
+                              <BottomBorder>
+                                <Width>1.25pt</Width>
+                              </BottomBorder>
+                              <LeftBorder>
+                                <Style>None</Style>
+                              </LeftBorder>
+                              <RightBorder>
+                                <Style>None</Style>
+                              </RightBorder>
+                              <BackgroundColor>White</BackgroundColor>
+                              <VerticalAlign>Middle</VerticalAlign>
+                              <PaddingLeft>2pt</PaddingLeft>
+                              <PaddingRight>2pt</PaddingRight>
+                              <PaddingTop>2pt</PaddingTop>
+                              <PaddingBottom>2pt</PaddingBottom>
+                            </Style>
+                          </Textbox>
+                        </CellContents>
+                      </TablixHeader>
+                      <TablixMembers>
+                        <TablixMember />
+                      </TablixMembers>
+                    </TablixMember>
+                  </TablixMembers>
+                </TablixMember>
+                <TablixMember>
+                  <TablixHeader>
+                    <Size>5.82123mm</Size>
+                    <CellContents>
+                      <Textbox Name="Textbox173">
+                        <CanGrow>true</CanGrow>
+                        <KeepTogether>true</KeepTogether>
+                        <Paragraphs>
+                          <Paragraph>
+                            <TextRuns>
+                              <TextRun>
+                                <Value />
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>11pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                            </TextRuns>
+                            <Style>
+                              <TextAlign>Center</TextAlign>
+                            </Style>
+                          </Paragraph>
+                        </Paragraphs>
+                        <rd:DefaultName>Textbox173</rd:DefaultName>
+                        <Style>
+                          <Border>
+                            <Color>#4e648a</Color>
+                            <Style>Solid</Style>
+                          </Border>
+                          <TopBorder>
+                            <Color>White</Color>
+                          </TopBorder>
+                          <LeftBorder>
+                            <Style>None</Style>
+                          </LeftBorder>
+                          <RightBorder>
+                            <Style>None</Style>
+                          </RightBorder>
+                          <BackgroundColor>White</BackgroundColor>
+                          <VerticalAlign>Middle</VerticalAlign>
+                          <PaddingLeft>2pt</PaddingLeft>
+                          <PaddingRight>2pt</PaddingRight>
+                          <PaddingTop>2pt</PaddingTop>
+                          <PaddingBottom>2pt</PaddingBottom>
+                        </Style>
+                      </Textbox>
+                    </CellContents>
+                  </TablixHeader>
+                  <TablixMembers>
+                    <TablixMember>
+                      <TablixHeader>
+                        <Size>12mm</Size>
+                        <CellContents>
+                          <Textbox Name="Textbox5">
+                            <CanGrow>true</CanGrow>
+                            <KeepTogether>true</KeepTogether>
+                            <Paragraphs>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>Участник МЭДО</Value>
+                                    <Style>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>11pt</FontSize>
+                                      <FontWeight>Bold</FontWeight>
+                                      <Color>Gray</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style>
+                                  <TextAlign>Center</TextAlign>
+                                </Style>
+                              </Paragraph>
+                            </Paragraphs>
+                            <rd:DefaultName>Textbox5</rd:DefaultName>
+                            <Style>
+                              <Border>
+                                <Color>#4e648a</Color>
+                                <Style>Solid</Style>
+                              </Border>
+                              <BottomBorder>
+                                <Width>1.25pt</Width>
+                              </BottomBorder>
+                              <LeftBorder>
+                                <Style>None</Style>
+                              </LeftBorder>
+                              <RightBorder>
+                                <Style>None</Style>
+                              </RightBorder>
+                              <BackgroundColor>White</BackgroundColor>
+                              <VerticalAlign>Middle</VerticalAlign>
+                              <PaddingLeft>2pt</PaddingLeft>
+                              <PaddingRight>2pt</PaddingRight>
+                              <PaddingTop>2pt</PaddingTop>
+                              <PaddingBottom>2pt</PaddingBottom>
+                            </Style>
+                          </Textbox>
+                        </CellContents>
+                      </TablixHeader>
+                      <TablixMembers>
+                        <TablixMember />
+                      </TablixMembers>
+                    </TablixMember>
+                  </TablixMembers>
+                </TablixMember>
+                <TablixMember>
+                  <TablixHeader>
+                    <Size>17.82123mm</Size>
+                    <CellContents>
+                      <Textbox Name="Textbox12">
+                        <CanGrow>true</CanGrow>
+                        <KeepTogether>true</KeepTogether>
+                        <Paragraphs>
+                          <Paragraph>
+                            <TextRuns>
+                              <TextRun>
+                                <Value>Динамика изменения</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>11pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                            </TextRuns>
+                            <Style>
+                              <TextAlign>Center</TextAlign>
+                            </Style>
+                          </Paragraph>
+                        </Paragraphs>
+                        <rd:DefaultName>Textbox12</rd:DefaultName>
+                        <Style>
+                          <Border>
+                            <Color>#4e648a</Color>
+                            <Style>Solid</Style>
+                          </Border>
+                          <TopBorder>
+                            <Color>White</Color>
+                          </TopBorder>
+                          <BottomBorder>
+                            <Width>1.25pt</Width>
+                          </BottomBorder>
+                          <LeftBorder>
+                            <Style>None</Style>
+                          </LeftBorder>
+                          <RightBorder>
+                            <Color>#e5e5e5</Color>
+                            <Style>None</Style>
+                          </RightBorder>
+                          <BackgroundColor>White</BackgroundColor>
+                          <VerticalAlign>Middle</VerticalAlign>
+                          <PaddingLeft>2pt</PaddingLeft>
+                          <PaddingRight>2pt</PaddingRight>
+                          <PaddingTop>2pt</PaddingTop>
+                          <PaddingBottom>2pt</PaddingBottom>
+                        </Style>
+                      </Textbox>
+                    </CellContents>
+                  </TablixHeader>
+                </TablixMember>
+                <TablixMember>
+                  <TablixHeader>
+                    <Size>5.82123mm</Size>
+                    <CellContents>
+                      <Textbox Name="Textbox3">
+                        <CanGrow>true</CanGrow>
+                        <KeepTogether>true</KeepTogether>
+                        <Paragraphs>
+                          <Paragraph>
+                            <TextRuns>
+                              <TextRun>
+                                <Value>Период отчета</Value>
+                                <Style>
+                                  <FontStyle>Normal</FontStyle>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>11pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                            </TextRuns>
+                            <Style>
+                              <TextAlign>Center</TextAlign>
+                            </Style>
+                          </Paragraph>
+                        </Paragraphs>
+                        <rd:DefaultName>Textbox1</rd:DefaultName>
+                        <Style>
+                          <Border>
+                            <Color>White</Color>
+                            <Style>None</Style>
+                          </Border>
+                          <TopBorder>
+                            <Color>#4e648a</Color>
+                            <Style>Solid</Style>
+                            <Width>0.75pt</Width>
+                          </TopBorder>
+                          <BottomBorder>
+                            <Color>#4e648a</Color>
+                            <Style>Solid</Style>
+                            <Width>1.25pt</Width>
+                          </BottomBorder>
+                          <LeftBorder>
+                            <Style>None</Style>
+                          </LeftBorder>
+                          <RightBorder>
+                            <Color>#4e648a</Color>
+                            <Style>Solid</Style>
+                            <Width>0.75pt</Width>
+                          </RightBorder>
+                          <BackgroundColor>White</BackgroundColor>
+                          <VerticalAlign>Middle</VerticalAlign>
+                          <PaddingLeft>2pt</PaddingLeft>
+                          <PaddingRight>2pt</PaddingRight>
+                          <PaddingTop>2pt</PaddingTop>
+                          <PaddingBottom>2pt</PaddingBottom>
+                        </Style>
+                      </Textbox>
+                    </CellContents>
+                  </TablixHeader>
+                  <TablixMembers>
+                    <TablixMember>
+                      <TablixHeader>
+                        <Size>12mm</Size>
+                        <CellContents>
+                          <Textbox Name="Textbox13">
+                            <CanGrow>true</CanGrow>
+                            <KeepTogether>true</KeepTogether>
+                            <Paragraphs>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>Оценка соблюдения регламентов </Value>
+                                    <Style>
+                                      <FontStyle>Italic</FontStyle>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <FontWeight>Bold</FontWeight>
+                                      <Color>Gray</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style>
+                                  <TextAlign>Center</TextAlign>
+                                </Style>
+                              </Paragraph>
+                            </Paragraphs>
+                            <rd:DefaultName>Textbox1</rd:DefaultName>
+                            <Style>
+                              <Border>
+                                <Color>#4e648a</Color>
+                                <Style>Solid</Style>
+                              </Border>
+                              <BottomBorder>
+                                <Width>1.25pt</Width>
+                              </BottomBorder>
+                              <LeftBorder>
+                                <Color>#e5e5e5</Color>
+                                <Style>None</Style>
+                              </LeftBorder>
+                              <RightBorder>
+                                <Style>None</Style>
+                              </RightBorder>
+                              <BackgroundColor>White</BackgroundColor>
+                              <VerticalAlign>Middle</VerticalAlign>
+                              <PaddingLeft>2pt</PaddingLeft>
+                              <PaddingRight>2pt</PaddingRight>
+                              <PaddingTop>2pt</PaddingTop>
+                              <PaddingBottom>2pt</PaddingBottom>
+                            </Style>
+                          </Textbox>
+                        </CellContents>
+                      </TablixHeader>
+                    </TablixMember>
+                    <TablixMember>
+                      <TablixHeader>
+                        <Size>12mm</Size>
+                        <CellContents>
+                          <Textbox Name="Textbox50">
+                            <CanGrow>true</CanGrow>
+                            <KeepTogether>true</KeepTogether>
+                            <Paragraphs>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>Доля отправленных квитанций</Value>
+                                    <Style>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <Color>Gray</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style>
+                                  <TextAlign>Center</TextAlign>
+                                </Style>
+                              </Paragraph>
+                            </Paragraphs>
+                            <rd:DefaultName>Textbox6</rd:DefaultName>
+                            <Style>
+                              <Border>
+                                <Color>#4e648a</Color>
+                                <Style>Solid</Style>
+                              </Border>
+                              <BottomBorder>
+                                <Width>1.25pt</Width>
+                              </BottomBorder>
+                              <LeftBorder>
+                                <Style>None</Style>
+                              </LeftBorder>
+                              <RightBorder>
+                                <Style>None</Style>
+                              </RightBorder>
+                              <BackgroundColor>White</BackgroundColor>
+                              <VerticalAlign>Middle</VerticalAlign>
+                              <PaddingLeft>2pt</PaddingLeft>
+                              <PaddingRight>2pt</PaddingRight>
+                              <PaddingTop>2pt</PaddingTop>
+                              <PaddingBottom>2pt</PaddingBottom>
+                            </Style>
+                          </Textbox>
+                        </CellContents>
+                      </TablixHeader>
+                    </TablixMember>
+                    <TablixMember>
+                      <TablixHeader>
+                        <Size>12mm</Size>
+                        <CellContents>
+                          <Textbox Name="Textbox51">
+                            <CanGrow>true</CanGrow>
+                            <KeepTogether>true</KeepTogether>
+                            <Paragraphs>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>Доля отправленных уведомлений</Value>
+                                    <Style>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <Color>Gray</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style>
+                                  <TextAlign>Center</TextAlign>
+                                </Style>
+                              </Paragraph>
+                            </Paragraphs>
+                            <rd:DefaultName>Textbox7</rd:DefaultName>
+                            <Style>
+                              <Border>
+                                <Color>#4e648a</Color>
+                                <Style>Solid</Style>
+                              </Border>
+                              <BottomBorder>
+                                <Width>1.25pt</Width>
+                              </BottomBorder>
+                              <LeftBorder>
+                                <Style>None</Style>
+                              </LeftBorder>
+                              <RightBorder>
+                                <Color>#4e648a</Color>
+                                <Style>Solid</Style>
+                                <Width>0.75pt</Width>
+                              </RightBorder>
+                              <BackgroundColor>White</BackgroundColor>
+                              <VerticalAlign>Middle</VerticalAlign>
+                              <PaddingLeft>2pt</PaddingLeft>
+                              <PaddingRight>2pt</PaddingRight>
+                              <PaddingTop>2pt</PaddingTop>
+                              <PaddingBottom>2pt</PaddingBottom>
+                            </Style>
+                          </Textbox>
+                        </CellContents>
+                      </TablixHeader>
+                    </TablixMember>
+                  </TablixMembers>
+                </TablixMember>
+                <TablixMember>
+                  <TablixHeader>
+                    <Size>5.82123mm</Size>
+                    <CellContents>
+                      <Textbox Name="Textbox174">
+                        <CanGrow>true</CanGrow>
+                        <KeepTogether>true</KeepTogether>
+                        <Paragraphs>
+                          <Paragraph>
+                            <TextRuns>
+                              <TextRun>
+                                <Value>Период сравнения</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>11pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                            </TextRuns>
+                            <Style>
+                              <TextAlign>Center</TextAlign>
+                            </Style>
+                          </Paragraph>
+                        </Paragraphs>
+                        <rd:DefaultName>Textbox174</rd:DefaultName>
+                        <Style>
+                          <Border>
+                            <Color>White</Color>
+                            <Style>Solid</Style>
+                          </Border>
+                          <TopBorder>
+                            <Color>#4e648a</Color>
+                            <Width>0.75pt</Width>
+                          </TopBorder>
+                          <BottomBorder>
+                            <Color>#4e648a</Color>
+                            <Width>1.25pt</Width>
+                          </BottomBorder>
+                          <LeftBorder>
+                            <Color>#4e648a</Color>
+                            <Style>None</Style>
+                          </LeftBorder>
+                          <RightBorder>
+                            <Style>None</Style>
+                          </RightBorder>
+                          <BackgroundColor>White</BackgroundColor>
+                          <VerticalAlign>Middle</VerticalAlign>
+                          <PaddingLeft>2pt</PaddingLeft>
+                          <PaddingRight>2pt</PaddingRight>
+                          <PaddingTop>2pt</PaddingTop>
+                          <PaddingBottom>2pt</PaddingBottom>
+                        </Style>
+                      </Textbox>
+                    </CellContents>
+                  </TablixHeader>
+                  <TablixMembers>
+                    <TablixMember>
+                      <TablixHeader>
+                        <Size>12mm</Size>
+                        <CellContents>
+                          <Textbox Name="Textbox15">
+                            <CanGrow>true</CanGrow>
+                            <KeepTogether>true</KeepTogether>
+                            <Paragraphs>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>Оценка соблюдения регламентов</Value>
+                                    <Style>
+                                      <FontStyle>Italic</FontStyle>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <FontWeight>Bold</FontWeight>
+                                      <Color>Gray</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style>
+                                  <TextAlign>Center</TextAlign>
+                                </Style>
+                              </Paragraph>
+                            </Paragraphs>
+                            <rd:DefaultName>Textbox1</rd:DefaultName>
+                            <Style>
+                              <Border>
+                                <Color>#4e648a</Color>
+                                <Style>Solid</Style>
+                              </Border>
+                              <BottomBorder>
+                                <Width>1.25pt</Width>
+                              </BottomBorder>
+                              <LeftBorder>
+                                <Color>#e5e5e5</Color>
+                                <Style>None</Style>
+                              </LeftBorder>
+                              <RightBorder>
+                                <Style>None</Style>
+                              </RightBorder>
+                              <BackgroundColor>White</BackgroundColor>
+                              <VerticalAlign>Middle</VerticalAlign>
+                              <PaddingLeft>2pt</PaddingLeft>
+                              <PaddingRight>2pt</PaddingRight>
+                              <PaddingTop>2pt</PaddingTop>
+                              <PaddingBottom>2pt</PaddingBottom>
+                            </Style>
+                          </Textbox>
+                        </CellContents>
+                      </TablixHeader>
+                      <TablixMembers>
+                        <TablixMember />
+                      </TablixMembers>
+                    </TablixMember>
+                    <TablixMember>
+                      <TablixHeader>
+                        <Size>12mm</Size>
+                        <CellContents>
+                          <Textbox Name="Textbox52">
+                            <CanGrow>true</CanGrow>
+                            <KeepTogether>true</KeepTogether>
+                            <Paragraphs>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>Доля отправленных квитанций</Value>
+                                    <Style>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <Color>Gray</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style>
+                                  <TextAlign>Center</TextAlign>
+                                </Style>
+                              </Paragraph>
+                            </Paragraphs>
+                            <rd:DefaultName>Textbox6</rd:DefaultName>
+                            <Style>
+                              <Border>
+                                <Color>#4e648a</Color>
+                                <Style>Solid</Style>
+                              </Border>
+                              <BottomBorder>
+                                <Width>1.25pt</Width>
+                              </BottomBorder>
+                              <LeftBorder>
+                                <Style>None</Style>
+                              </LeftBorder>
+                              <RightBorder>
+                                <Style>None</Style>
+                              </RightBorder>
+                              <BackgroundColor>White</BackgroundColor>
+                              <VerticalAlign>Middle</VerticalAlign>
+                              <PaddingLeft>2pt</PaddingLeft>
+                              <PaddingRight>2pt</PaddingRight>
+                              <PaddingTop>2pt</PaddingTop>
+                              <PaddingBottom>2pt</PaddingBottom>
+                            </Style>
+                          </Textbox>
+                        </CellContents>
+                      </TablixHeader>
+                      <TablixMembers>
+                        <TablixMember />
+                      </TablixMembers>
+                    </TablixMember>
+                    <TablixMember>
+                      <TablixHeader>
+                        <Size>12mm</Size>
+                        <CellContents>
+                          <Textbox Name="Textbox53">
+                            <CanGrow>true</CanGrow>
+                            <KeepTogether>true</KeepTogether>
+                            <Paragraphs>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>Доля отправленных уведомлений</Value>
+                                    <Style>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <Color>Gray</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style>
+                                  <TextAlign>Center</TextAlign>
+                                </Style>
+                              </Paragraph>
+                            </Paragraphs>
+                            <rd:DefaultName>Textbox7</rd:DefaultName>
+                            <Style>
+                              <Border>
+                                <Color>#4e648a</Color>
+                                <Style>Solid</Style>
+                              </Border>
+                              <BottomBorder>
+                                <Width>1.25pt</Width>
+                              </BottomBorder>
+                              <LeftBorder>
+                                <Style>None</Style>
+                              </LeftBorder>
+                              <RightBorder>
+                                <Color>#4e648a</Color>
+                                <Style>None</Style>
+                                <Width>0.75pt</Width>
+                              </RightBorder>
+                              <BackgroundColor>White</BackgroundColor>
+                              <VerticalAlign>Middle</VerticalAlign>
+                              <PaddingLeft>2pt</PaddingLeft>
+                              <PaddingRight>2pt</PaddingRight>
+                              <PaddingTop>2pt</PaddingTop>
+                              <PaddingBottom>2pt</PaddingBottom>
+                            </Style>
+                          </Textbox>
+                        </CellContents>
+                      </TablixHeader>
+                      <TablixMembers>
+                        <TablixMember />
+                      </TablixMembers>
+                    </TablixMember>
+                  </TablixMembers>
+                </TablixMember>
+              </TablixMembers>
+            </TablixColumnHierarchy>
+            <TablixRowHierarchy>
+              <TablixMembers>
+                <TablixMember>
+                  <Group Name="MemberType">
+                    <GroupExpressions>
+                      <GroupExpression>=Fields!MemberType.Value</GroupExpression>
+                    </GroupExpressions>
+                  </Group>
+                  <SortExpressions>
+                    <SortExpression>
+                      <Value>=Switch(Fields!MemberType.Value = "ФОИВ",1, Fields!MemberType.Value = "упФОИВ",2, Fields!MemberType.Value = "РОИВ",3, Fields!MemberType.Value = "Прочие",4)</Value>
+                    </SortExpression>
+                  </SortExpressions>
+                  <TablixMembers>
+                    <TablixMember>
+                      <KeepWithGroup>After</KeepWithGroup>
+                    </TablixMember>
+                    <TablixMember>
+                      <Group Name="RowGroup" />
+                      <Visibility>
+                        <Hidden>true</Hidden>
+                        <ToggleItem>Textbox46</ToggleItem>
+                      </Visibility>
+                    </TablixMember>
+                  </TablixMembers>
+                </TablixMember>
+              </TablixMembers>
+            </TablixRowHierarchy>
+            <RepeatColumnHeaders>true</RepeatColumnHeaders>
+            <FixedColumnHeaders>true</FixedColumnHeaders>
+            <DataSetName>Report1</DataSetName>
+            <SortExpressions>
+              <SortExpression>
+                <Value>=Switch((IsNothing(Fields!Score_Period_1.Value) = TRUE ) AND (IsNothing(Fields!Score_Period_2.Value) = TRUE ), 0, Fields!Score_Period_1.Value = 0 AND Fields!Score_Period_2.Value = 0, 1, Fields!Score_Period_1.Value &gt; 0 OR Fields!Score_Period_2.Value &gt; 0, 2)</Value>
+                <Direction>Descending</Direction>
+              </SortExpression>
+              <SortExpression>
+                <Value>=Fields!Rank.Value</Value>
+              </SortExpression>
+              <SortExpression>
+                <Value>=Fields!Name.Value</Value>
+              </SortExpression>
+            </SortExpressions>
+            <Top>24.62944mm</Top>
+            <Left>0mm</Left>
+            <Height>29.82123mm</Height>
+            <Width>297.41209mm</Width>
+            <ZIndex>5</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+            </Style>
+          </Tablix>
+          <Textbox Name="Textbox62">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>по</Value>
+                    <Style />
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Right</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox60</rd:DefaultName>
+            <Top>11.92389mm</Top>
+            <Left>71.82845mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>6.74375mm</Width>
+            <ZIndex>6</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="Textbox61">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>Период сравнения:</Value>
+                    <Style>
+                      <FontWeight>Bold</FontWeight>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style />
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox59</rd:DefaultName>
+            <Top>17.92389mm</Top>
+            <Left>0mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>35.36373mm</Width>
+            <ZIndex>7</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="DataStart2">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>=Format(Parameters!DateStartCompare.Value, "dd MMMM yyyy")</Value>
+                    <Style>
+                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Left</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>DataStart</rd:DefaultName>
+            <Top>17.92389mm</Top>
+            <Left>40.2554mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>31.57305mm</Width>
+            <ZIndex>8</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="DataEnd2">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEndCompare.Value)), "dd MMMM yyyy")</Value>
+                    <Style>
+                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Left</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>DataEnd</rd:DefaultName>
+            <Top>17.92389mm</Top>
+            <Left>78.5722mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>72.83989mm</Width>
+            <ZIndex>9</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="Textbox63">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>c</Value>
+                    <Style />
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Right</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox60</rd:DefaultName>
+            <Top>17.92389mm</Top>
+            <Left>35.36373mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>4.89167mm</Width>
+            <ZIndex>10</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="Textbox65">
+            <CanGrow>true</CanGrow>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>по</Value>
+                    <Style />
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Right</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox60</rd:DefaultName>
+            <Top>17.92389mm</Top>
+            <Left>71.82845mm</Left>
+            <Height>5.85738mm</Height>
+            <Width>6.74375mm</Width>
+            <ZIndex>11</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+        </ReportItems>
+        <Height>54.45067mm</Height>
+        <Style>
+          <Border>
+            <Style>None</Style>
+          </Border>
+        </Style>
+      </Body>
+      <Width>349.71209mm</Width>
+      <Page>
+        <PageFooter>
+          <Height>8.11389mm</Height>
+          <PrintOnFirstPage>true</PrintOnFirstPage>
+          <PrintOnLastPage>true</PrintOnLastPage>
+          <ReportItems>
+            <Textbox Name="ExecutionTime">
+              <CanGrow>true</CanGrow>
+              <KeepTogether>true</KeepTogether>
+              <Paragraphs>
+                <Paragraph>
+                  <TextRuns>
+                    <TextRun>
+                      <Value>=Globals!ExecutionTime</Value>
+                      <Style>
+                        <FontFamily>Yu Gothic UI</FontFamily>
+                      </Style>
+                    </TextRun>
+                  </TextRuns>
+                  <Style>
+                    <TextAlign>Left</TextAlign>
+                  </Style>
+                </Paragraph>
+              </Paragraphs>
+              <rd:DefaultName>ExecutionTime</rd:DefaultName>
+              <Top>1.76389mm</Top>
+              <Left>254.61209mm</Left>
+              <Height>6.35mm</Height>
+              <Width>50.8mm</Width>
+              <Style>
+                <Border>
+                  <Style>None</Style>
+                </Border>
+                <PaddingLeft>2pt</PaddingLeft>
+                <PaddingRight>2pt</PaddingRight>
+                <PaddingTop>2pt</PaddingTop>
+                <PaddingBottom>2pt</PaddingBottom>
+              </Style>
+            </Textbox>
+            <Textbox Name="Textbox87">
+              <CanGrow>true</CanGrow>
+              <KeepTogether>true</KeepTogether>
+              <Paragraphs>
+                <Paragraph>
+                  <TextRuns>
+                    <TextRun>
+                      <Value>Отчет создан:</Value>
+                      <Style>
+                        <FontFamily>Yu Gothic UI</FontFamily>
+                      </Style>
+                    </TextRun>
+                  </TextRuns>
+                  <Style>
+                    <TextAlign>Right</TextAlign>
+                  </Style>
+                </Paragraph>
+              </Paragraphs>
+              <rd:DefaultName>Textbox87</rd:DefaultName>
+              <Top>1.76389mm</Top>
+              <Left>219.41209mm</Left>
+              <Height>6.35mm</Height>
+              <Width>35.2mm</Width>
+              <ZIndex>1</ZIndex>
+              <Style>
+                <Border>
+                  <Style>None</Style>
+                </Border>
+                <PaddingLeft>2pt</PaddingLeft>
+                <PaddingRight>2pt</PaddingRight>
+                <PaddingTop>2pt</PaddingTop>
+                <PaddingBottom>2pt</PaddingBottom>
+              </Style>
+            </Textbox>
+          </ReportItems>
+          <Style>
+            <Border>
+              <Style>None</Style>
+            </Border>
+          </Style>
+        </PageFooter>
+        <PageHeight>29.7cm</PageHeight>
+        <PageWidth>21cm</PageWidth>
+        <InteractiveHeight>0cm</InteractiveHeight>
+        <InteractiveWidth>21cm</InteractiveWidth>
+        <LeftMargin>2cm</LeftMargin>
+        <RightMargin>2cm</RightMargin>
+        <TopMargin>2cm</TopMargin>
+        <BottomMargin>2cm</BottomMargin>
+        <ColumnSpacing>0.13cm</ColumnSpacing>
+        <Style />
+      </Page>
+    </ReportSection>
+  </ReportSections>
+  <ReportParameters>
+    <ReportParameter Name="DateStart">
+      <DataType>DateTime</DataType>
+      <DefaultValue>
+        <Values>
+          <Value>=DateSerial(Year(TODAY), Month(TODAY),"1")</Value>
+        </Values>
+      </DefaultValue>
+      <Prompt>Начало периода отчета</Prompt>
+    </ReportParameter>
+    <ReportParameter Name="DateEnd">
+      <DataType>DateTime</DataType>
+      <DefaultValue>
+        <Values>
+          <Value>=DateSerial(Year(Now()), Month(Now()), Day(Now()))</Value>
+        </Values>
+      </DefaultValue>
+      <Prompt>Окончание периода отчета</Prompt>
+    </ReportParameter>
+    <ReportParameter Name="DateStartCompare">
+      <DataType>DateTime</DataType>
+      <DefaultValue>
+        <Values>
+          <Value>=DateAdd("m", -1, DateSerial(Year(TODAY), Month(TODAY),"1"))</Value>
+        </Values>
+      </DefaultValue>
+      <Prompt>Начало периода сравнения</Prompt>
+    </ReportParameter>
+    <ReportParameter Name="DateEndCompare">
+      <DataType>DateTime</DataType>
+      <DefaultValue>
+        <Values>
+          <Value>=DateAdd("d", -1, DateSerial(Year(TODAY), Month(TODAY),"1"))</Value>
+        </Values>
+      </DefaultValue>
+      <Prompt>Окончание периода сравнения</Prompt>
+    </ReportParameter>
+  </ReportParameters>
+  <rd:ReportUnitType>Cm</rd:ReportUnitType>
+  <rd:ReportID>ef08f9e6-2644-4f0e-adcd-4a3dcade83a8</rd:ReportID>
+</Report>
