@@ -103,7 +103,7 @@ FROM(
 				,CAST(SUBSTRING(ActualSumScore.Criterion, 1, 1) AS INT)	AS CriterionGroup
 				,MAX(CountCriterion)									AS CountPackage
 				--,COUNT(ActualSumScore.SumValue) AS CountPackage
-				,SUM(ActualSumScore.SumValue)							AS Rating
+				,SUM(ActualSumScore.AvgValue)							AS Rating
 			FROM (
 				SELECT -- ActualSumScore = средняя оценка по каждому критерию для каждого участника
 					ScoreGrouped.MemberGuid
@@ -111,11 +111,12 @@ FROM(
 					,ScoreGrouped.Criterion
 					--,#tmp_ValidationLog.LogId
 					,COUNT(CAST(SUBSTRING(ScoreGrouped.Criterion, 1, 1) AS INT))	AS CountCriterion  
-					,AVG(ScoreGrouped.Value)										AS SumValue
+					,AVG(ScoreGrouped.Value)										AS AvgValue
 				FROM
 					#tmp_ValidationLog --Таблица всех валидных последних логов
 				INNER JOIN ( --ScoreGrouped = оценки всех пакетов
 					SELECT
+						DISTINCT 
 						Score.ValidationLog
 						,Score.Value
 						,Score.MemberGuid
@@ -123,8 +124,6 @@ FROM(
 						,Score.Criterion
 					FROM
 						Score 
-					LEFT JOIN Criterion
-						ON Score.Criterion = Criterion.Code
 				) AS ScoreGrouped
 					ON #tmp_ValidationLog.LogId = ScoreGrouped.ValidationLog
 				WHERE
@@ -359,5 +358,8 @@ INNER JOIN (
 		Member.Guid
 ) AS MemberScoreP7
 	ON MemberScoreP7.MemberGuid =FormatScore.MemberGuid 
-INNER JOIN Member
+RIGHT JOIN Member
 	ON Member.Guid = FormatScore.MemberGuid COLLATE SQL_Latin1_General_CP1_CI_AS
+WHERE
+	Active = 1
+

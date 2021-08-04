@@ -29,9 +29,9 @@ Type =
 	4 -- ТК
 */
 	SELECT --ActualPackages = предыдущая таблица ActualPackages  с указанием типа пакета
-		Member.Guid				AS MemberGuid
+		ActualPackages.MemberGuid
 		--,ActualPackages.PackageXml
-		,IIF(ActualPackages.PackageXmlVersion is null AND ActualPackages.PackageId is not null, 'x', PackageXmlVersion) AS PackageXmlVersion
+		,PackageXmlVersion
 		--,ActualPackages.ContainerXml
 		,ActualPackages.ContainerXmlVersion
 		,CASE 
@@ -106,6 +106,7 @@ Type =
 				ON Batch.Id = Package.Batch
 			WHERE
 				Processed = 1
+				AND Success = 1
 				AND Incoming = 0
 				AND Package.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
 				AND Package.ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
@@ -114,10 +115,6 @@ Type =
 			AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
 	) AS ActualPackages
 		ON PackageType.ValidationLog = ActualPackages.LogId 
-	RIGHT JOIN Member
-		ON Member.Guid = ActualPackages.MemberGuid
-	WHERE  
-		Member.Active = 1
 
 
 SELECT
@@ -135,7 +132,6 @@ FROM(
 		,ISNULL(EM.[2.5], 0)			AS EM_2_5
 		,ISNULL(EM.[2.2], 0)			AS EM_2_2
 		,ISNULL(EM.[2.0], 0)			AS EM_2_0
-		,ISNULL(EM.[x], 0)				AS EM_X
 		,ISNULL(ED.[AllContainer], 0)	AS AllContainer
 		,ISNULL(ED.[2.7.1], 0)			AS ED_2_7_1
 		,ISNULL(ED.[2.7], 0)			AS ED_2_7
@@ -144,14 +140,13 @@ FROM(
 	FROM (
 		SELECT --EM = оценка перехода на 2.7.1 в период отчета по ЭС
 			MemberEM
-			,'AllMessage' = ISNULL(VersionMessage.[2.7.1], 0) + ISNULL(VersionMessage.[2.7], 0) + ISNULL(VersionMessage.[2.6], 0) + ISNULL(VersionMessage.[2.5], 0) + ISNULL(VersionMessage.[2.2], 0) + ISNULL(VersionMessage.[2.0], 0) + ISNULL(VersionMessage.[x], 0)
+			,'AllMessage' = ISNULL(VersionMessage.[2.7.1], 0) + ISNULL(VersionMessage.[2.7], 0) + ISNULL(VersionMessage.[2.6], 0) + ISNULL(VersionMessage.[2.5], 0) + ISNULL(VersionMessage.[2.2], 0) + ISNULL(VersionMessage.[2.0], 0)
 			,VersionMessage.[2.7.1]	AS '2.7.1'
 			,VersionMessage.[2.7]	AS '2.7'
 			,VersionMessage.[2.6]	AS '2.6'
 			,VersionMessage.[2.5]	AS '2.5'
 			,VersionMessage.[2.2]	AS '2.2'
 			,VersionMessage.[2.0]	AS '2.0'
-			,VersionMessage.[x]		AS 'x'
 		FROM (
 			SELECT -- Кол-во каждого формата ЭС по каждому участнику
 				#Tmp.MemberGuid AS MemberEM
@@ -165,7 +160,7 @@ FROM(
 		PIVOT (
 		MAX(CountPackageXmlVersion)
 			FOR PackageXmlVersion
-			IN([2.7.1],[2.7],[2.6],[2.5],[2.2],[2.0],[x])
+			IN([2.7.1],[2.7],[2.6],[2.5],[2.2],[2.0])
 		) AS VersionMessage
 	) AS EM
 	LEFT JOIN (
@@ -211,3 +206,4 @@ FROM(
 	WHERE
 		Member.Active = 1
 ) AS Finaly_Table
+
