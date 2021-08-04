@@ -19,7 +19,7 @@ CREATE TABLE #Tmp (
 					,PackageXmlVersion nvarchar(255)
 					,Type INT
 					--,Success BIT
-					,ReceivedOn DateTime2(7))
+					,Period INT)
 INSERT INTO #Tmp
 /*
 Type = 
@@ -42,7 +42,18 @@ SELECT --ActualPackages = предыдущая таблица ActualPackages  с указанием типа па
 			PackageType.Type
 		END AS Type
 	--,ActualPackages.Success
-	,ActualPackages.ReceivedOn
+	,CASE WHEN
+			(ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			AND ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета			
+			)
+			THEN 1 --период отчета
+		WHEN 
+			(ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0') --начало периода сравнения
+			AND ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '23', '59', '59', '0') --конец периода сравнения
+			) 
+			THEN 2 --период сравнения
+		ELSE 0 --Пакеты, не входящие в периоды очтета или сравнения
+	END AS Period
 FROM (
 	SELECT   --PackageType = определяем тип пакетов (не учитывая период отчета)
 		ValidationLog
@@ -107,6 +118,7 @@ RIGHT JOIN (
 		WHERE
 			Processed = 1
 			AND Incoming = 0
+			AND Success = 1
 	) AS ProcessedPackage
 		ON ProcessedPackage.Package = ActualLog.PackageId
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
@@ -121,80 +133,72 @@ FROM (
 		Member.Name			AS Member
 		,ChangesDynamic = ROUND(
 							CASE
-							WHEN Report1.AllMessage1 > 0 AND Report2.AllMessage2 > 0
-								THEN 100*((100*Report1.[2.7.1_1]/Report1.AllMessage1) - (100*Report2.[2.7.1_2]/Report2.AllMessage2))/(100+ABS(100*Report1.[2.7.1_1]/Report1.AllMessage1) + ABS(100*Report2.[2.7.1_2]/Report2.AllMessage2))
-							WHEN Report1.AllMessage1 > 0 AND (Report2.AllMessage2 = 0 OR Report2.AllMessage2 is null)
-								THEN 100*((100*Report1.[2.7.1_1]/Report1.AllMessage1) - 0)/(100+ABS(100*Report1.[2.7.1_1]/Report1.AllMessage1) + 0)
-							WHEN (Report1.AllMessage1 = 0 OR Report1.AllMessage1 is null) AND Report2.AllMessage2 > 0
-								THEN 100*(0 - (100*Report2.[2.7.1_2]/Report2.AllMessage2))/(100+0 + ABS(100*Report2.[2.7.1_2]/Report2.AllMessage2))
+							WHEN Format_Versions.AllMessage_1 > 0 AND Format_Versions.AllMessage_2 > 0
+								THEN 100*((100*Format_Versions.[2.7.1_1]/Format_Versions.AllMessage_1) - (100*Format_Versions.[2.7.1_2]/Format_Versions.AllMessage_2))/(100+ABS(100*Format_Versions.[2.7.1_1]/Format_Versions.AllMessage_1) + ABS(100*Format_Versions.[2.7.1_2]/Format_Versions.AllMessage_2))
+							WHEN Format_Versions.AllMessage_1 > 0 AND (Format_Versions.AllMessage_2 = 0 OR Format_Versions.AllMessage_2 is null)
+								THEN 100*((100*Format_Versions.[2.7.1_1]/Format_Versions.AllMessage_1) - 0)/(100+ABS(100*Format_Versions.[2.7.1_1]/Format_Versions.AllMessage_1) + 0)
+							WHEN (Format_Versions.AllMessage_1 = 0 OR Format_Versions.AllMessage_1 is null) AND Format_Versions.AllMessage_2 > 0
+								THEN 100*(0 - (100*Format_Versions.[2.7.1_2]/Format_Versions.AllMessage_2))/(100+0 + ABS(100*Format_Versions.[2.7.1_2]/Format_Versions.AllMessage_2))
 							ELSE NULL
 							END
 						, 2)
 		,'Score1' = ROUND(
-						IIF(Report1.AllMessage1 > 0
-						,100 * Report1.[2.7.1_1]/Report1.AllMessage1
+						IIF(Format_Versions.AllMessage_1 > 0
+						,100 * Format_Versions.[2.7.1_1]/Format_Versions.AllMessage_1
 						,NULL)
 					, 2)
-		,Report1.AllMessage1
-		,Report1.[2.7.1_1]
+		,Format_Versions.AllMessage_1
+		,Format_Versions.[2.7.1_1]
 		,'Score2' = ROUND(
-						IIF(Report2.AllMessage2 > 0
-						,100 * Report2.[2.7.1_2]/Report2.AllMessage2
+						IIF(Format_Versions.AllMessage_2 > 0
+						,100 * Format_Versions.[2.7.1_2]/Format_Versions.AllMessage_2
 						,NULL) 
 					, 2)
-		,Report2.AllMessage2
-		,Report2.[2.7.1_2]
+		,Format_Versions.AllMessage_2
+		,Format_Versions.[2.7.1_2]
 	FROM (
-		SELECT --EM = оценка перехода на 2.7.1 в период сравнения по ЭС
-			MemberEM AS MemberEM2
-			,'AllMessage2' = CAST(ISNULL(VersionMessage.[2.7.1], 0) + ISNULL(VersionMessage.[2.7], 0) + ISNULL(VersionMessage.[2.6], 0) + ISNULL(VersionMessage.[2.5], 0) + ISNULL(VersionMessage.[2.2], 0) + ISNULL(VersionMessage.[2.0], 0) + ISNULL(VersionMessage.[x], 0) AS FLOAT)
-			,CAST(ISNULL(VersionMessage.[2.7.1], 0) AS FLOAT) AS '2.7.1_2'
+		SELECT --Format_Versions = оценка перехода на 2.7.1 в периоды сравнения и отчета
+			Member
+			,MAX(AllMessage_1)	AS AllMessage_1
+			,MAX(AllMessage_2)	AS AllMessage_2
+			,MAX([2.7.1_1])		AS '2.7.1_1'
+			,MAX([2.7.1_2])		AS '2.7.1_2'
 		FROM (
-			SELECT --Кол-во каждой версии ЭС по каждому участнику в период сравнения
-				#Tmp.MemberGuid AS MemberEM
-				,PackageXmlVersion
-				,COUNT(*) AS CountPackageXmlVersion
-			FROM #Tmp
-			WHERE
-				#Tmp.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0') --начало периода отчета
-				AND #Tmp.ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '23', '59', '59', '0') --конец периода отчета
-			GROUP BY 
-				#Tmp.MemberGuid
-				,PackageXmlVersion
-		)x
-		PIVOT (
-		MAX(CountPackageXmlVersion)
-			FOR PackageXmlVersion
-			IN([2.7.1],[2.7],[2.6],[2.5],[2.2],[2.0], [x])
-		) AS VersionMessage
-	) AS Report2
-	FULL OUTER JOIN (
-		SELECT --EM = оценка перехода на 2.7.1 в период сравнения отчета по ЭС
-			MemberEM AS MemberEM1
-			,'AllMessage1' = CAST(ISNULL(VersionMessage.[2.7.1], 0) + ISNULL(VersionMessage.[2.7], 0) + ISNULL(VersionMessage.[2.6], 0) + ISNULL(VersionMessage.[2.5], 0) + ISNULL(VersionMessage.[2.2], 0) + ISNULL(VersionMessage.[2.0], 0) + ISNULL(VersionMessage.[x], 0) AS FLOAT)
-			,CAST(ISNULL(VersionMessage.[2.7.1], 0) AS FLOAT) AS '2.7.1_1'
-		FROM (
-			SELECT --Кол-во каждой версии ЭС по каждому участнику в период отчета
-				#Tmp.MemberGuid AS MemberEM
-				,PackageXmlVersion
-				,COUNT(*) AS CountPackageXmlVersion
-			FROM #Tmp
-			WHERE
-				#Tmp.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-				AND #Tmp.ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
-			GROUP BY 
-				#Tmp.MemberGuid
-				,PackageXmlVersion
-		)x
-		PIVOT (
-		MAX(CountPackageXmlVersion)
-			FOR PackageXmlVersion
-			IN([2.7.1],[2.7],[2.6],[2.5],[2.2],[2.0], [x])
-		) AS VersionMessage
-	) AS Report1
-		ON Report1.MemberEM1 = Report2.MemberEM2
+			SELECT --EM = оценка перехода на 2.7.1 в период сравнения по ЭС
+				Member
+				,CAST(ISNULL([2.7.1], 0) + ISNULL([2.7], 0) + ISNULL([2.6], 0) + ISNULL([2.5], 0) + ISNULL([2.2], 0) + ISNULL([2.0], 0) AS FLOAT)				AS 'AllMessage_1'
+				,CAST(ISNULL([2.7.1_2], 0) + ISNULL([2.7_2], 0) + ISNULL([2.6_2], 0) + ISNULL([2.5_2], 0) + ISNULL([2.2_2], 0) + ISNULL([2.0_2], 0) AS FLOAT)	AS 'AllMessage_2'
+				,CAST(ISNULL([2.7.1], 0) AS FLOAT)																												AS '2.7.1_1'
+				,CAST(ISNULL([2.7.1_2], 0) AS FLOAT)																											AS '2.7.1_2'
+			FROM (
+				SELECT --Кол-во каждой версии ЭС по каждому участнику в период сравнения
+					#Tmp.MemberGuid AS Member
+					,IIF(Period = 1, PackageXmlVersion, NULL)		AS PackageXmlVersion_1
+					,IIF(Period = 2, PackageXmlVersion+'_2', NULL)	AS PackageXmlVersion_2
+					,SUM(IIF(Period = 1, 1, 0))						AS CountPackageXmlVersion_1
+					,SUM(IIF(Period = 2, 1, 0))						AS CountPackageXmlVersion_2
+				FROM #Tmp
+				GROUP BY 
+					#Tmp.MemberGuid
+					,Period
+					,PackageXmlVersion
+			)x
+			PIVOT (
+				MAX(CountPackageXmlVersion_1)
+				FOR PackageXmlVersion_1
+				IN([2.7.1],[2.7],[2.6],[2.5],[2.2],[2.0])
+			) AS VersionMessage_1
+			PIVOT (
+				MAX(CountPackageXmlVersion_2)
+				FOR PackageXmlVersion_2
+				IN([2.7.1_2],[2.7_2],[2.6_2],[2.5_2],[2.2_2],[2.0_2])
+			) AS VersionMessage_2
+		) AS Versions_Pivot
+		GROUP BY
+			Member
+	) AS Format_Versions
 	RIGHT JOIN Member
-		ON Member.Guid = IIF(Report2.MemberEM2 is not null, Report2.MemberEM2, Report1.MemberEM1) COLLATE SQL_Latin1_General_CP1_CI_AS
+		ON Member.Guid =Format_Versions.Member COLLATE SQL_Latin1_General_CP1_CI_AS
 	WHERE
 		Active = 1
 ) AS Final_table
