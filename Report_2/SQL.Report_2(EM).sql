@@ -178,6 +178,8 @@ FROM (
 					,SUM(IIF(Period = 1, 1, 0))						AS CountPackageXmlVersion_1
 					,SUM(IIF(Period = 2, 1, 0))						AS CountPackageXmlVersion_2
 				FROM #Tmp
+				WHERE
+					Period IN (1, 2)
 				GROUP BY 
 					#Tmp.MemberGuid
 					,Period

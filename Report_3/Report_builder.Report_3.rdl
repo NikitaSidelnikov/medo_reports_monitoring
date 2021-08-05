@@ -66,12 +66,12 @@ CREATE TABLE #ScoreNotifications (
 INSERT INTO #tmp_Packages  
 	SELECT -- ActualLogs = актуальные пакеты с последним логом
 		ReportPacks.LogId
-		,ReportPacks.Id as PackageId
+		,ReportPacks.Id			AS PackageId
 		,ReportPacks.ReceivedOn
 	FROM (
 		SELECT -- ActualDates = актуальные даты логов пакетов. Если логи по пакету менялись, то берем последний обработанный лог
 			Package AS Max_Package
-			,MAX(ValidatedOn) AS Max_ValidatedOn
+			,MAX(ValidatedOn)	AS Max_ValidatedOn
 		FROM	
 			ValidationLog
 		WHERE 
@@ -81,7 +81,7 @@ INSERT INTO #tmp_Packages
 	) AS ActualDates
 	INNER JOIN (
 		SELECT -- ReportPacks = все обработанные (processed = 1) пакеты
-			ValidationLog.Id AS LogId
+			ValidationLog.Id	AS LogId
 			,Package.Id
 			,Package.ValidatedOn
 			,Package.ReceivedOn
@@ -92,6 +92,7 @@ INSERT INTO #tmp_Packages
 		WHERE
 			--Package.Incoming = 1 --только исходящие пакеты 
 			Package.Processed = 1 --только обработанные пакеты
+			AND Success = 1
 	) AS ReportPacks
 		ON ActualDates.Max_Package = ReportPacks.Id
 		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
@@ -127,7 +128,7 @@ INSERT INTO #ScoreReceipt
 								END
 		FROM (
 			SELECT --RequestMessage - документы/ТК, ожидающие квитанции в период очета
-				MAX(#tmp_Packages.PackageId) AS PackageId
+				MAX(#tmp_Packages.PackageId)	AS PackageId
 				,AllRequestMessage.MessageUid
 				,AllRequestMessage.SenderGuid
 				,AllRequestMessage.MessageType
@@ -152,11 +153,9 @@ INSERT INTO #ScoreReceipt
 			INNER JOIN #tmp_Packages
 				ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 			WHERE
-				--ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-				--AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета	
-				#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-				AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета	
-				AND AllRequestMessage.PackageDelivaredOn is not null
+				AllRequestMessage.PackageDelivaredOn is not null
+				AND AllRequestMessage.PackageDelivaredOn &gt;=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+				AND DATEADD(DAY, 5, AllRequestMessage.PackageDelivaredOn) &lt;= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 				AND AllRequestMessage.MinPackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
 			GROUP BY 
 				AllRequestMessage.MessageUid
@@ -168,7 +167,7 @@ INSERT INTO #ScoreReceipt
 
 		LEFT OUTER JOIN (
 			SELECT		--ResponseMessage - Все квитанции, отправленные в ответ на документы/ТК, с номерами пакетов
-				MAX(#tmp_Packages.PackageId) AS PackageId --MAX берем, потому что может опять при объединении совпасть sender, repicient, messUid и даже ResponseDelivaredOn
+				MAX(#tmp_Packages.PackageId)	AS PackageId --MAX берем, потому что может опять при объединении совпасть sender, repicient, messUid и даже ResponseDelivaredOn
 				,AllResponseMessage.MessageUid
 				,AllResponseMessage.SenderGuid
 				,AllResponseMessage.RecipientGuid
@@ -180,7 +179,7 @@ INSERT INTO #ScoreReceipt
 					,SenderGuid
 					,RecipientGuid
 					,MessageType
-					,PackageDelivaredOn AS ResponseDelivaredOn
+					,PackageDelivaredOn		AS ResponseDelivaredOn
 					,MIN(PackageDelivaredOn) OVER (PARTITION BY  MessageUid
 																,SenderGuid
 																,RecipientGuid
@@ -205,26 +204,26 @@ INSERT INTO #ScoreReceipt
 			AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
 			AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
 
-		WHERE 
-			(CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-				END 
-			&gt; 0 
-			AND CASE
-						WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
-						THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-						ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-						END
-					is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+		--WHERE 
+		--	(CASE
+		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+		--		THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+		--		END 
+		--	&gt; 0 
+		--	AND CASE
+		--				WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
+		--				THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+		--				ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+		--				END
+		--			is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
 	
-			OR (CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-				END
-			&lt;= 0 )
+		--	OR (CASE
+		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+		--		THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+		--		END
+		--	&lt;= 0 )
 	) AS FinalScoreReceipt
 	RIGHT JOIN Member
 		ON Member.Guid = FinalScoreReceipt.MemberResponseMessagerR
@@ -265,7 +264,7 @@ INSERT INTO #ScoreNotifications
 								END
 		FROM (
 			SELECT --RequestMessage - документы/ТК, ожидающие уведомления в период очета
-				MAX(#tmp_Packages.PackageId) AS PackageId
+				MAX(#tmp_Packages.PackageId)	AS PackageId
 				,AllRequestMessage.DocumentUid 
 				,AllRequestMessage.SenderGuid
 				,AllRequestMessage.MessageType
@@ -290,9 +289,9 @@ INSERT INTO #ScoreNotifications
 			INNER JOIN #tmp_Packages
 				ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 			WHERE
-				#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-				AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета									
-				AND AllRequestMessage.PackageDelivaredOn is not null
+				AllRequestMessage.PackageDelivaredOn is not null
+				AND AllRequestMessage.PackageDelivaredOn &gt;=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+				AND DATEADD(DAY, 5, AllRequestMessage.PackageDelivaredOn) &lt;= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 				AND AllRequestMessage.PackageDelivaredOn = AllRequestMessage.MinPackageDelivaredOn
 			GROUP BY
 				AllRequestMessage.DocumentUid 
@@ -303,7 +302,7 @@ INSERT INTO #ScoreNotifications
 		) AS RequestMessage
 		LEFT OUTER JOIN (
 			SELECT		--ResponseMessage - Все Уведомления, отправленные в ответ на документы/ТК, с номерами пакетов
-				MAX(#tmp_Packages.PackageId) AS PackageId
+				MAX(#tmp_Packages.PackageId)	AS PackageId
 				,AllResponseMessage.DocumentUid
 				,AllResponseMessage.SenderGuid
 				,AllResponseMessage.RecipientGuid
@@ -339,27 +338,27 @@ INSERT INTO #ScoreNotifications
 			ON RequestMessage.DocumentUid = ResponseMessage.DocumentUid 
 			AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
 			AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
-		WHERE 
-			(CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-				END 
-			&gt; 0 
-			AND CASE
-						WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
-						THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
-						ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-						END
-					is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+		--WHERE 
+		--	(CASE
+		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+		--		THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
+		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+		--		END 
+		--	&gt; 0 
+		--	AND CASE
+		--				WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
+		--				THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
+		--				ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+		--				END
+		--			is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+	    --
 	
-	
-			OR (CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-				END
-			&lt;= 0 )
+		--	OR (CASE
+		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+		--		THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn))
+		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 5, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+		--		END
+		--	&lt;= 0 )
 	) AS FinalScoreNotifications
 	RIGHT JOIN Member
 		ON Member.Guid = FinalScoreNotifications.MemberResponseMessagerN
@@ -1116,6 +1115,11 @@ FROM (
                               <Style>None</Style>
                               <Width>1pt</Width>
                             </BottomBorder>
+                            <RightBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>0.5pt</Width>
+                            </RightBorder>
                             <PaddingLeft>2pt</PaddingLeft>
                             <PaddingRight>2pt</PaddingRight>
                             <PaddingTop>2pt</PaddingTop>
@@ -1146,7 +1150,7 @@ FROM (
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1200,7 +1204,7 @@ FROM (
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1261,7 +1265,7 @@ FROM (
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1312,7 +1316,7 @@ FROM (
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1373,7 +1377,7 @@ FROM (
                                   <FontStyle>Italic</FontStyle>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1428,7 +1432,7 @@ FROM (
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1486,7 +1490,7 @@ FROM (
                                       <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1545,7 +1549,7 @@ FROM (
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1603,7 +1607,7 @@ FROM (
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1663,7 +1667,7 @@ FROM (
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1692,7 +1696,7 @@ FROM (
                           </LeftBorder>
                           <RightBorder>
                             <Color>#e5e5e5</Color>
-                            <Width>1pt</Width>
+                            <Width>0.5pt</Width>
                           </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
                           <VerticalAlign>Middle</VerticalAlign>
@@ -1721,7 +1725,7 @@ FROM (
                                       <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1780,7 +1784,7 @@ FROM (
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1838,7 +1842,7 @@ FROM (
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1865,7 +1869,9 @@ FROM (
                                 <Color>White</Color>
                               </LeftBorder>
                               <RightBorder>
-                                <Color>White</Color>
+                                <Color>#e5e5e5</Color>
+                                <Style>Solid</Style>
+                                <Width>0.5pt</Width>
                               </RightBorder>
                               <BackgroundColor>White</BackgroundColor>
                               <VerticalAlign>Middle</VerticalAlign>

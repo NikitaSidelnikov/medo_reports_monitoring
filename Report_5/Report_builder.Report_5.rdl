@@ -129,7 +129,7 @@ FROM(
 				,CAST(SUBSTRING(ActualSumScore.Criterion, 1, 1) AS INT)	AS CriterionGroup
 				,MAX(CountCriterion)									AS CountPackage
 				--,COUNT(ActualSumScore.SumValue) AS CountPackage
-				,SUM(ActualSumScore.SumValue)							AS Rating
+				,SUM(ActualSumScore.AvgValue)							AS Rating
 			FROM (
 				SELECT -- ActualSumScore = средняя оценка по каждому критерию для каждого участника
 					ScoreGrouped.MemberGuid
@@ -137,11 +137,12 @@ FROM(
 					,ScoreGrouped.Criterion
 					--,#tmp_ValidationLog.LogId
 					,COUNT(CAST(SUBSTRING(ScoreGrouped.Criterion, 1, 1) AS INT))	AS CountCriterion  
-					,AVG(ScoreGrouped.Value)										AS SumValue
+					,AVG(ScoreGrouped.Value)										AS AvgValue
 				FROM
 					#tmp_ValidationLog --Таблица всех валидных последних логов
 				INNER JOIN ( --ScoreGrouped = оценки всех пакетов
 					SELECT
+						DISTINCT 
 						Score.ValidationLog
 						,Score.Value
 						,Score.MemberGuid
@@ -149,8 +150,6 @@ FROM(
 						,Score.Criterion
 					FROM
 						Score 
-					LEFT JOIN Criterion
-						ON Score.Criterion = Criterion.Code
 				) AS ScoreGrouped
 					ON #tmp_ValidationLog.LogId = ScoreGrouped.ValidationLog
 				WHERE
@@ -201,7 +200,7 @@ INNER JOIN (
 				RegistrationMessage.DocumentUid
 				,RegistrationMessage.Member
 				--,DATEDIFF(MILLISECOND, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn) AS DateDiff --Тут переполнение по миллисекундам идет - не подходит
-				,'DateDiff' = IIF(DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)) = 0 --если даты совпадают, то сравниваем по миллисекундам
+				,'DateDiff' = IIF(DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)) = 0 --если даты совпадают, то сравниваем по минутам
 									,DATEDIFF(MINUTE, RegistrationMessage.MemberDelivaredOn, RegistrationMessage.ControllerReactedOn)
 									,DATEDIFF(DAY, CONVERT(DATE, RegistrationMessage.MemberDelivaredOn), CONVERT(DATE, RegistrationMessage.ControllerReactedOn)))  --иначе сравниваем по дням
 																				
@@ -216,20 +215,17 @@ INNER JOIN (
 				FROM (
 					SELECT  --RequestMessage - Зарегистрированные документы/ТК, ожидающие уведомления в период очета по каждому участнику по каждому uid  документа
 						RegistrationControl.DocumentUid
+						,RegistrationControl.RecipientGuid
 						,RegistrationControl.SenderGuid
 						,RegistrationControl.MessageType
-						,RegistrationControl.RecipientGuid
 						,MAX(DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn)) AS MaxReactedOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату ожидания
 					FROM RegistrationControl 
 					INNER JOIN #tmp_ValidationLog  --Таблица всех валидных последних логов
 						ON #tmp_ValidationLog.LogId = RegistrationControl.ValidatingLog
 					WHERE
-						RegistrationControl.RequestCount = 1
-						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
-						--AND RegistrationControl.PackageDelivaredOn &gt;=  '2021-03-01' --начало периода отчета
-						--AND RegistrationControl.PackageDelivaredOn &lt; '2021-04-01' --конец периода отчета
-						--AND #tmp_ValidationLog.Incoming = 1 --смотрим входящие участнику документы
+						RequestCount = 1
+						AND RegistrationControl.PackageDelivaredOn &gt;=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 5 дней до отчетного периода
+						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) &lt;= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 					GROUP BY
 						DocumentUid
 						,SenderGuid
@@ -261,20 +257,20 @@ INNER JOIN (
 					AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
 			) AS RegistrationMessage
 		) AS CheckMessageComplete
-		WHERE
-			(CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
-				END 
-			&gt; 0 
-			AND CheckMessageComplete.DateDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
-			OR (CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
-				END
-			&lt;= 0 )	 
+		--WHERE
+		--	(CASE
+		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
+		--		THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
+		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
+		--		END 
+		--	&gt; 0 
+		--	AND CheckMessageComplete.DateDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+		--	OR (CASE
+		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
+		--		THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
+		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
+		--		END
+		--	&lt;= 0 )	 
 		
 	) AS ScoreForMessage
 	RIGHT OUTER JOIN Member
@@ -326,12 +322,9 @@ INNER JOIN (
 					INNER JOIN #tmp_ValidationLog  --Таблица всех валидных последних логов
 						ON #tmp_ValidationLog.LogId = ConfirmationControl.ValidatingLog
 					WHERE
-						ConfirmationControl.RequestCount = 1
-						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
-						--AND ConfirmationControl.PackageDelivaredOn &gt;=  '2021-03-01' --начало периода отчета
-						--AND ConfirmationControl.PackageDelivaredOn &lt; '2021-04-01' --конец периода отчета
-						--AND #tmp_ValidationLog.Incoming = 1 --смотрим входящие участнику документы
+						RequestCount = 1
+						AND ConfirmationControl.PackageDelivaredOn &gt;=  DATEADD(DAY, -3, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) &lt;= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 					GROUP BY
 						MessageUid
 						,SenderGuid
@@ -363,20 +356,20 @@ INNER JOIN (
 					AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
 			) AS RegistrationMessage
 		) AS CheckMessageComplete
-		WHERE
-			(CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
-				END 
-			&gt; 0 
-			AND CheckMessageComplete.DateDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
-			OR (CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
-				END
-			&lt;= 0 )	 
+		--WHERE
+		--	(CASE
+		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
+		--		THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
+		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
+		--		END 
+		--	&gt; 0 
+		--	AND CheckMessageComplete.DateDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+		--	OR (CASE
+		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
+		--		THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
+		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
+		--		END
+		--	&lt;= 0 )	 
 		
 	) AS ScoreForMessage
 	RIGHT OUTER JOIN Member
@@ -385,8 +378,11 @@ INNER JOIN (
 		Member.Guid
 ) AS MemberScoreP7
 	ON MemberScoreP7.MemberGuid =FormatScore.MemberGuid 
-INNER JOIN Member
+RIGHT JOIN Member
 	ON Member.Guid = FormatScore.MemberGuid COLLATE SQL_Latin1_General_CP1_CI_AS
+WHERE
+	Active = 1
+
 </CommandText>
         <rd:UseGenericDesigner>true</rd:UseGenericDesigner>
       </Query>
@@ -686,7 +682,6 @@ INNER JOIN Member
             <rd:WatermarkTextbox>Title</rd:WatermarkTextbox>
             <rd:DefaultName>ReportTitle</rd:DefaultName>
             <Top>58.05866mm</Top>
-            <Left>0cm</Left>
             <Height>10.16mm</Height>
             <Width>488.87704mm</Width>
             <ZIndex>6</ZIndex>
@@ -772,6 +767,7 @@ INNER JOIN Member
                                   <Value>=Fields!RankMember.Value</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <FontWeight>Bold</FontWeight>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -1458,6 +1454,11 @@ INNER JOIN Member
                               <Style>Solid</Style>
                               <Width>1pt</Width>
                             </BottomBorder>
+                            <RightBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>0.5pt</Width>
+                            </RightBorder>
                             <PaddingLeft>2pt</PaddingLeft>
                             <PaddingRight>15pt</PaddingRight>
                             <PaddingTop>2pt</PaddingTop>
@@ -1476,7 +1477,7 @@ INNER JOIN Member
                   <TablixHeader>
                     <Size>6mm</Size>
                     <CellContents>
-                      <Textbox Name="Textbox469">
+                      <Textbox Name="Textbox1">
                         <CanGrow>true</CanGrow>
                         <KeepTogether>true</KeepTogether>
                         <Paragraphs>
@@ -1497,7 +1498,7 @@ INNER JOIN Member
                             </Style>
                           </Paragraph>
                         </Paragraphs>
-                        <rd:DefaultName>Textbox469</rd:DefaultName>
+                        <rd:DefaultName>Textbox1</rd:DefaultName>
                         <Style>
                           <Border>
                             <Color>#4e648a</Color>
@@ -1542,7 +1543,7 @@ INNER JOIN Member
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1596,7 +1597,7 @@ INNER JOIN Member
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
                                           <FontWeight>Bold</FontWeight>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -1650,7 +1651,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -1698,7 +1699,7 @@ INNER JOIN Member
                   <TablixHeader>
                     <Size>6mm</Size>
                     <CellContents>
-                      <Textbox Name="Textbox470">
+                      <Textbox Name="Textbox2">
                         <CanGrow>true</CanGrow>
                         <KeepTogether>true</KeepTogether>
                         <Paragraphs>
@@ -1719,7 +1720,7 @@ INNER JOIN Member
                             </Style>
                           </Paragraph>
                         </Paragraphs>
-                        <rd:DefaultName>Textbox470</rd:DefaultName>
+                        <rd:DefaultName>Textbox2</rd:DefaultName>
                         <Style>
                           <Border>
                             <Color>#4e648a</Color>
@@ -1764,7 +1765,7 @@ INNER JOIN Member
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1818,7 +1819,7 @@ INNER JOIN Member
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
                                           <FontWeight>Bold</FontWeight>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -1869,7 +1870,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -1917,7 +1918,7 @@ INNER JOIN Member
                   <TablixHeader>
                     <Size>6mm</Size>
                     <CellContents>
-                      <Textbox Name="Textbox8">
+                      <Textbox Name="Textbox3">
                         <CanGrow>true</CanGrow>
                         <KeepTogether>true</KeepTogether>
                         <Paragraphs>
@@ -1936,7 +1937,7 @@ INNER JOIN Member
                             </Style>
                           </Paragraph>
                         </Paragraphs>
-                        <rd:DefaultName>Textbox8</rd:DefaultName>
+                        <rd:DefaultName>Textbox3</rd:DefaultName>
                         <Style>
                           <Border>
                             <Color>#4e648a</Color>
@@ -1980,7 +1981,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2029,7 +2030,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -2080,7 +2081,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -2125,8 +2126,7 @@ INNER JOIN Member
                   <TablixHeader>
                     <Size>6mm</Size>
                     <CellContents>
-                      <Textbox Name="Textbox471">
-                        <CanGrow>true</CanGrow>
+                      <Textbox Name="Textbox472">
                         <KeepTogether>true</KeepTogether>
                         <Paragraphs>
                           <Paragraph>
@@ -2185,7 +2185,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2231,7 +2231,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -2280,7 +2280,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -2334,7 +2334,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -2390,7 +2390,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2437,7 +2437,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -2485,7 +2485,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -2539,7 +2539,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -2595,7 +2595,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2642,7 +2642,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -2690,7 +2690,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -2744,7 +2744,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -2800,7 +2800,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2846,7 +2846,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -2893,7 +2893,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -2947,7 +2947,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -3003,7 +3003,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -3056,7 +3056,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -3102,7 +3102,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -3156,7 +3156,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -3205,7 +3205,7 @@ INNER JOIN Member
                   <TablixHeader>
                     <Size>6mm</Size>
                     <CellContents>
-                      <Textbox Name="Textbox35">
+                      <Textbox Name="Textbox38">
                         <KeepTogether>true</KeepTogether>
                         <Paragraphs>
                           <Paragraph>
@@ -3264,7 +3264,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -3310,7 +3310,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -3357,7 +3357,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>9pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -3410,7 +3410,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -3466,7 +3466,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -3487,6 +3487,11 @@ INNER JOIN Member
                               <BottomBorder>
                                 <Style>Solid</Style>
                               </BottomBorder>
+                              <RightBorder>
+                                <Color>#e5e5e5</Color>
+                                <Style>Solid</Style>
+                                <Width>0.5pt</Width>
+                              </RightBorder>
                               <BackgroundColor>White</BackgroundColor>
                               <PaddingLeft>2pt</PaddingLeft>
                               <PaddingRight>2pt</PaddingRight>
@@ -3512,7 +3517,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -3531,7 +3536,9 @@ INNER JOIN Member
                                     <Style>None</Style>
                                   </LeftBorder>
                                   <RightBorder>
-                                    <Style>None</Style>
+                                    <Color>#e5e5e5</Color>
+                                    <Style>Solid</Style>
+                                    <Width>0.5pt</Width>
                                   </RightBorder>
                                   <BackgroundColor>White</BackgroundColor>
                                   <PaddingLeft>2pt</PaddingLeft>
@@ -3559,7 +3566,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>9pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -3612,7 +3619,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -3634,7 +3641,9 @@ INNER JOIN Member
                                         <Style>None</Style>
                                       </LeftBorder>
                                       <RightBorder>
-                                        <Style>None</Style>
+                                        <Color>#e5e5e5</Color>
+                                        <Style>Solid</Style>
+                                        <Width>0.5pt</Width>
                                       </RightBorder>
                                       <BackgroundColor>White</BackgroundColor>
                                       <VerticalAlign>Middle</VerticalAlign>
@@ -4449,6 +4458,11 @@ INNER JOIN Member
                               <Style>Solid</Style>
                               <Width>1pt</Width>
                             </BottomBorder>
+                            <RightBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>0.5pt</Width>
+                            </RightBorder>
                             <PaddingLeft>2pt</PaddingLeft>
                             <PaddingRight>15pt</PaddingRight>
                             <PaddingTop>2pt</PaddingTop>
@@ -4487,6 +4501,11 @@ INNER JOIN Member
                               <Color>#e5e5e5</Color>
                               <Style>Solid</Style>
                             </BottomBorder>
+                            <RightBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>0.5pt</Width>
+                            </RightBorder>
                             <VerticalAlign>Top</VerticalAlign>
                             <PaddingLeft>2pt</PaddingLeft>
                             <PaddingRight>2pt</PaddingRight>
@@ -4572,7 +4591,7 @@ INNER JOIN Member
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -4626,7 +4645,7 @@ INNER JOIN Member
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
                                           <FontWeight>Bold</FontWeight>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -4677,7 +4696,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -4788,7 +4807,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -4837,7 +4856,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -4888,7 +4907,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -4934,7 +4953,6 @@ INNER JOIN Member
                     <Size>6mm</Size>
                     <CellContents>
                       <Textbox Name="Textbox474">
-                        <CanGrow>true</CanGrow>
                         <KeepTogether>true</KeepTogether>
                         <Paragraphs>
                           <Paragraph>
@@ -4993,7 +5011,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -5043,7 +5061,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -5095,7 +5113,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -5150,7 +5168,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -5206,7 +5224,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -5253,7 +5271,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -5301,7 +5319,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -5355,7 +5373,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -5411,7 +5429,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -5458,7 +5476,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -5506,7 +5524,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -5560,7 +5578,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -5616,7 +5634,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -5662,7 +5680,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -5709,7 +5727,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -5763,7 +5781,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -5819,7 +5837,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -5870,7 +5888,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -5916,7 +5934,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -5970,7 +5988,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -6044,14 +6062,10 @@ INNER JOIN Member
                             <Color>#4e648a</Color>
                             <Style>None</Style>
                           </Border>
-                          <TopBorder>
-                            <Style>None</Style>
-                          </TopBorder>
-                          <LeftBorder>
-                            <Style>None</Style>
-                          </LeftBorder>
                           <RightBorder>
-                            <Style>None</Style>
+                            <Color>#e5e5e5</Color>
+                            <Style>Solid</Style>
+                            <Width>0.5pt</Width>
                           </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
                           <VerticalAlign>Top</VerticalAlign>
@@ -6078,7 +6092,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -6124,7 +6138,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -6171,7 +6185,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>9pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -6224,7 +6238,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -6280,7 +6294,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -6301,6 +6315,11 @@ INNER JOIN Member
                               <BottomBorder>
                                 <Style>Solid</Style>
                               </BottomBorder>
+                              <RightBorder>
+                                <Color>#e5e5e5</Color>
+                                <Style>Solid</Style>
+                                <Width>0.5pt</Width>
+                              </RightBorder>
                               <BackgroundColor>White</BackgroundColor>
                               <PaddingLeft>2pt</PaddingLeft>
                               <PaddingRight>2pt</PaddingRight>
@@ -6326,7 +6345,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -6345,7 +6364,9 @@ INNER JOIN Member
                                     <Style>None</Style>
                                   </LeftBorder>
                                   <RightBorder>
-                                    <Style>None</Style>
+                                    <Color>#e5e5e5</Color>
+                                    <Style>Solid</Style>
+                                    <Width>0.5pt</Width>
                                   </RightBorder>
                                   <BackgroundColor>White</BackgroundColor>
                                   <PaddingLeft>2pt</PaddingLeft>
@@ -6373,7 +6394,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>9pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -6426,7 +6447,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -6448,7 +6469,9 @@ INNER JOIN Member
                                         <Style>None</Style>
                                       </LeftBorder>
                                       <RightBorder>
-                                        <Style>None</Style>
+                                        <Color>#e5e5e5</Color>
+                                        <Style>Solid</Style>
+                                        <Width>0.5pt</Width>
                                       </RightBorder>
                                       <BackgroundColor>White</BackgroundColor>
                                       <VerticalAlign>Middle</VerticalAlign>
@@ -6525,7 +6548,7 @@ INNER JOIN Member
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -6565,7 +6588,7 @@ INNER JOIN Member
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
-                                          <Color>Gray</Color>
+                                          <Color>DimGray</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -6609,7 +6632,7 @@ INNER JOIN Member
                                               <FontFamily>Tahoma</FontFamily>
                                               <FontSize>11pt</FontSize>
                                               <FontWeight>Bold</FontWeight>
-                                              <Color>Gray</Color>
+                                              <Color>DimGray</Color>
                                             </Style>
                                           </TextRun>
                                         </TextRuns>
@@ -6631,7 +6654,9 @@ INNER JOIN Member
                                         <Style>None</Style>
                                       </LeftBorder>
                                       <RightBorder>
-                                        <Style>None</Style>
+                                        <Color>#e5e5e5</Color>
+                                        <Style>Solid</Style>
+                                        <Width>0.5pt</Width>
                                       </RightBorder>
                                       <BackgroundColor>White</BackgroundColor>
                                       <PaddingLeft>2pt</PaddingLeft>

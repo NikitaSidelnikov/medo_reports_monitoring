@@ -99,7 +99,6 @@ INSERT INTO #tmp_Packages
 		INNER JOIN Member
 			ON Member.Guid = Batch.MemberGuid
 		WHERE
-			--Package.Incoming = 1 --только исходящие пакеты 
 			Package.Processed = 1 --только обработанные пакеты
 	) AS ReportPacks
 		ON ActualDates.Max_Package = ReportPacks.Id
@@ -154,11 +153,9 @@ INSERT INTO #ScoreReceipt
 		INNER JOIN #tmp_Packages
 			ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 		WHERE
-			--ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-			--AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета	
-			#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-			AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета	
-			AND AllRequestMessage.PackageDelivaredOn is not null
+			AllRequestMessage.PackageDelivaredOn is not null
+			AND AllRequestMessage.PackageDelivaredOn &gt;=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+			AND DATEADD(DAY, 5, AllRequestMessage.PackageDelivaredOn) &lt;= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 			AND AllRequestMessage.MinPackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
 		GROUP BY 
 			AllRequestMessage.MessageUid
@@ -208,26 +205,26 @@ INSERT INTO #ScoreReceipt
 		AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
 		AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
 
-	WHERE 
-		(CASE
-			WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-			THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-			ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-			END 
-		&gt; 0 
-		AND CASE
-					WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
-					THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-					ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-					END
-				is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+	--WHERE 
+	--	(CASE
+	--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+	--		THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+	--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+	--		END 
+	--	&gt; 0 
+	--	AND CASE
+	--				WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
+	--				THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+	--				ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+	--				END
+	--			is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
 	
-		OR (CASE
-			WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-			THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-			ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-			END
-		&lt;= 0 )
+	--	OR (CASE
+	--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+	--		THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+	--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+	--		END
+	--	&lt;= 0 )
 
 
 INSERT INTO #ScoreNotifications
@@ -282,9 +279,9 @@ INSERT INTO #ScoreNotifications
 		INNER JOIN #tmp_Packages
 			ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 		WHERE
-			#tmp_Packages.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-			AND #tmp_Packages.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета									
-			AND AllRequestMessage.PackageDelivaredOn is not null
+			AllRequestMessage.PackageDelivaredOn is not null
+			AND AllRequestMessage.PackageDelivaredOn &gt;=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+			AND DATEADD(DAY, 5, AllRequestMessage.PackageDelivaredOn) &lt;= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 			AND AllRequestMessage.PackageDelivaredOn = AllRequestMessage.MinPackageDelivaredOn
 		GROUP BY
 			AllRequestMessage.DocumentUid 
@@ -1080,6 +1077,11 @@ ORDER BY Name ASC</CommandText>
                               <Color>#e5e5e5</Color>
                               <Width>0.5pt</Width>
                             </BottomBorder>
+                            <RightBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>0.5pt</Width>
+                            </RightBorder>
                             <PaddingLeft>2pt</PaddingLeft>
                             <PaddingRight>2pt</PaddingRight>
                             <PaddingTop>2pt</PaddingTop>
@@ -1110,7 +1112,7 @@ ORDER BY Name ASC</CommandText>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1161,7 +1163,7 @@ ORDER BY Name ASC</CommandText>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1216,7 +1218,7 @@ ORDER BY Name ASC</CommandText>
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontWeight>Bold</FontWeight>
-                                          <Color>#4d4d4d</Color>
+                                          <Color>#393939</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -1239,7 +1241,7 @@ ORDER BY Name ASC</CommandText>
                                     <Style>Solid</Style>
                                     <Width>1pt</Width>
                                   </BottomBorder>
-                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <BackgroundColor>WhiteSmoke</BackgroundColor>
                                   <PaddingLeft>2pt</PaddingLeft>
                                   <PaddingRight>2pt</PaddingRight>
                                   <PaddingTop>2pt</PaddingTop>
@@ -1271,7 +1273,7 @@ ORDER BY Name ASC</CommandText>
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1322,7 +1324,7 @@ ORDER BY Name ASC</CommandText>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1378,7 +1380,7 @@ ORDER BY Name ASC</CommandText>
                                           <FontFamily>Tahoma</FontFamily>
                                           <FontSize>11pt</FontSize>
                                           <FontWeight>Bold</FontWeight>
-                                          <Color>Gray</Color>
+                                          <Color>#393939</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -1407,7 +1409,7 @@ ORDER BY Name ASC</CommandText>
                                   <RightBorder>
                                     <Color>White</Color>
                                   </RightBorder>
-                                  <BackgroundColor>White</BackgroundColor>
+                                  <BackgroundColor>WhiteSmoke</BackgroundColor>
                                   <VerticalAlign>Middle</VerticalAlign>
                                   <PaddingLeft>2pt</PaddingLeft>
                                   <PaddingRight>2pt</PaddingRight>
@@ -1438,7 +1440,7 @@ ORDER BY Name ASC</CommandText>
                                   <FontStyle>Italic</FontStyle>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1494,7 +1496,7 @@ ORDER BY Name ASC</CommandText>
                                       <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>#4d4d4d</Color>
+                                      <Color>#393939</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1523,7 +1525,7 @@ ORDER BY Name ASC</CommandText>
                                 <Style>Solid</Style>
                                 <Width>0.5pt</Width>
                               </RightBorder>
-                              <BackgroundColor>#fafafa</BackgroundColor>
+                              <BackgroundColor>WhiteSmoke</BackgroundColor>
                               <PaddingLeft>2pt</PaddingLeft>
                               <PaddingRight>2pt</PaddingRight>
                               <PaddingTop>2pt</PaddingTop>
@@ -1550,7 +1552,7 @@ ORDER BY Name ASC</CommandText>
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1608,7 +1610,7 @@ ORDER BY Name ASC</CommandText>
                                       <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1665,7 +1667,7 @@ ORDER BY Name ASC</CommandText>
                                           <FontStyle>Italic</FontStyle>
                                           <FontFamily>Tahoma</FontFamily>
                                           <Format>#,0;-#,0;'-'</Format>
-                                          <Color>#4d4d4d</Color>
+                                          <Color>#393939</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -1692,7 +1694,7 @@ ORDER BY Name ASC</CommandText>
                                     <Style>Solid</Style>
                                     <Width>0.5pt</Width>
                                   </LeftBorder>
-                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <BackgroundColor>WhiteSmoke</BackgroundColor>
                                   <PaddingLeft>2pt</PaddingLeft>
                                   <PaddingRight>2pt</PaddingRight>
                                   <PaddingTop>2pt</PaddingTop>
@@ -1722,7 +1724,7 @@ ORDER BY Name ASC</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1777,7 +1779,7 @@ ORDER BY Name ASC</CommandText>
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <Format>#,0</Format>
-                                          <Color>#4d4d4d</Color>
+                                          <Color>#393939</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -1799,7 +1801,7 @@ ORDER BY Name ASC</CommandText>
                                   <BottomBorder>
                                     <Style>Solid</Style>
                                   </BottomBorder>
-                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <BackgroundColor>WhiteSmoke</BackgroundColor>
                                   <PaddingLeft>2pt</PaddingLeft>
                                   <PaddingRight>2pt</PaddingRight>
                                   <PaddingTop>2pt</PaddingTop>
@@ -1829,7 +1831,7 @@ ORDER BY Name ASC</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1884,7 +1886,7 @@ ORDER BY Name ASC</CommandText>
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <Format>#,0</Format>
-                                          <Color>#4d4d4d</Color>
+                                          <Color>#393939</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -1909,7 +1911,7 @@ ORDER BY Name ASC</CommandText>
                                     <Style>Solid</Style>
                                     <Width>1pt</Width>
                                   </BottomBorder>
-                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <BackgroundColor>WhiteSmoke</BackgroundColor>
                                   <PaddingLeft>2pt</PaddingLeft>
                                   <PaddingRight>2pt</PaddingRight>
                                   <PaddingTop>2pt</PaddingTop>
@@ -1941,7 +1943,7 @@ ORDER BY Name ASC</CommandText>
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1970,7 +1972,7 @@ ORDER BY Name ASC</CommandText>
                           </LeftBorder>
                           <RightBorder>
                             <Color>#e5e5e5</Color>
-                            <Width>1pt</Width>
+                            <Width>0.5pt</Width>
                           </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
                           <VerticalAlign>Middle</VerticalAlign>
@@ -1999,7 +2001,7 @@ ORDER BY Name ASC</CommandText>
                                       <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2056,7 +2058,7 @@ ORDER BY Name ASC</CommandText>
                                           <FontStyle>Italic</FontStyle>
                                           <FontFamily>Tahoma</FontFamily>
                                           <Format>#,0;-#,0;'-'</Format>
-                                          <Color>#4d4d4d</Color>
+                                          <Color>#393939</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -2083,7 +2085,7 @@ ORDER BY Name ASC</CommandText>
                                     <Style>Solid</Style>
                                     <Width>0.5pt</Width>
                                   </LeftBorder>
-                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <BackgroundColor>WhiteSmoke</BackgroundColor>
                                   <PaddingLeft>2pt</PaddingLeft>
                                   <PaddingRight>2pt</PaddingRight>
                                   <PaddingTop>2pt</PaddingTop>
@@ -2113,7 +2115,7 @@ ORDER BY Name ASC</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2168,7 +2170,7 @@ ORDER BY Name ASC</CommandText>
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <Format>#,0</Format>
-                                          <Color>#4d4d4d</Color>
+                                          <Color>#393939</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -2190,7 +2192,7 @@ ORDER BY Name ASC</CommandText>
                                   <BottomBorder>
                                     <Style>Solid</Style>
                                   </BottomBorder>
-                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <BackgroundColor>WhiteSmoke</BackgroundColor>
                                   <PaddingLeft>2pt</PaddingLeft>
                                   <PaddingRight>2pt</PaddingRight>
                                   <PaddingTop>2pt</PaddingTop>
@@ -2220,7 +2222,7 @@ ORDER BY Name ASC</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2237,6 +2239,7 @@ ORDER BY Name ASC</CommandText>
                               </Border>
                               <TopBorder>
                                 <Color>#4e648a</Color>
+                                <Style>None</Style>
                                 <Width>1pt</Width>
                               </TopBorder>
                               <BottomBorder>
@@ -2245,9 +2248,12 @@ ORDER BY Name ASC</CommandText>
                               </BottomBorder>
                               <LeftBorder>
                                 <Color>White</Color>
+                                <Style>None</Style>
                               </LeftBorder>
                               <RightBorder>
-                                <Color>White</Color>
+                                <Color>#e5e5e5</Color>
+                                <Style>Solid</Style>
+                                <Width>0.5pt</Width>
                               </RightBorder>
                               <BackgroundColor>White</BackgroundColor>
                               <VerticalAlign>Middle</VerticalAlign>
@@ -2275,7 +2281,7 @@ ORDER BY Name ASC</CommandText>
                                         <Style>
                                           <FontFamily>Tahoma</FontFamily>
                                           <Format>#,0</Format>
-                                          <Color>#4d4d4d</Color>
+                                          <Color>#393939</Color>
                                         </Style>
                                       </TextRun>
                                     </TextRuns>
@@ -2300,7 +2306,12 @@ ORDER BY Name ASC</CommandText>
                                     <Style>Solid</Style>
                                     <Width>1pt</Width>
                                   </BottomBorder>
-                                  <BackgroundColor>#fafafa</BackgroundColor>
+                                  <RightBorder>
+                                    <Color>#e5e5e5</Color>
+                                    <Style>Solid</Style>
+                                    <Width>0.5pt</Width>
+                                  </RightBorder>
+                                  <BackgroundColor>WhiteSmoke</BackgroundColor>
                                   <PaddingLeft>2pt</PaddingLeft>
                                   <PaddingRight>2pt</PaddingRight>
                                   <PaddingTop>2pt</PaddingTop>

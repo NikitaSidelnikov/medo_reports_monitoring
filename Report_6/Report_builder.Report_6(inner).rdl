@@ -13,7 +13,7 @@
     </DataSource>
   </DataSources>
   <DataSets>
-    <DataSet Name="Report7">
+    <DataSet Name="Report6">
       <Query>
         <DataSourceName>MedonomFull</DataSourceName>
         <QueryParameters>
@@ -43,7 +43,6 @@ CREATE TABLE #Tmp (
 					PackageId INT PRIMARY KEY
 					,LogId BIGINT
 					,ReceivedOn Datetime2 
-					--,Success BIT
 )
 
 INSERT INTO #Tmp
@@ -51,7 +50,6 @@ INSERT INTO #Tmp
 		ActualLog.PackageId
 		,ProcessedPackage.LogId
 		,ProcessedPackage.ReceivedOn
-		--,ProcessedPackage.Success
 	FROM(
 		SELECT -- ActualLog = последний лог по пакету
 			ValidationLog.Package			AS PackageId
@@ -71,6 +69,7 @@ INSERT INTO #Tmp
 			ON ValidationLog.Package = Package.Id
 		WHERE
 			Processed = 1
+			AND Success = 1
 			AND Incoming = 0 --только исходящие пакеты
 			AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
 			AND Package.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --окончание периода отчета
@@ -665,6 +664,11 @@ ORDER BY Name ASC</CommandText>
                             <BottomBorder>
                               <Style>Solid</Style>
                             </BottomBorder>
+                            <RightBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>0.5pt</Width>
+                            </RightBorder>
                             <PaddingLeft>2pt</PaddingLeft>
                             <PaddingRight>2pt</PaddingRight>
                             <PaddingTop>2pt</PaddingTop>
@@ -957,6 +961,7 @@ ORDER BY Name ASC</CommandText>
                                 <Style>
                                   <FontStyle>Normal</FontStyle>
                                   <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>11pt</FontSize>
                                   <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
@@ -1063,6 +1068,7 @@ ORDER BY Name ASC</CommandText>
                                 <Value>Использован справочник для заполнения поля</Value>
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>11pt</FontSize>
                                   <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
@@ -1092,7 +1098,7 @@ ORDER BY Name ASC</CommandText>
                           </LeftBorder>
                           <RightBorder>
                             <Color>#e5e5e5</Color>
-                            <Style>None</Style>
+                            <Style>Solid</Style>
                             <Width>0.5pt</Width>
                           </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
@@ -1120,6 +1126,7 @@ ORDER BY Name ASC</CommandText>
                                     <Value>Вид документа</Value>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>11pt</FontSize>
                                       <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
@@ -1233,6 +1240,7 @@ ORDER BY Name ASC</CommandText>
                                     <Value>Гриф документа</Value>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>11pt</FontSize>
                                       <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
@@ -1346,6 +1354,7 @@ ORDER BY Name ASC</CommandText>
                                     <Value>Регион документа</Value>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>11pt</FontSize>
                                       <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
@@ -1456,6 +1465,7 @@ ORDER BY Name ASC</CommandText>
                                     <Value>Тип связи документа</Value>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>11pt</FontSize>
                                       <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
@@ -1484,8 +1494,9 @@ ORDER BY Name ASC</CommandText>
                                 <Style>None</Style>
                               </LeftBorder>
                               <RightBorder>
-                                <Color>White</Color>
-                                <Style>None</Style>
+                                <Color>#e5e5e5</Color>
+                                <Style>Solid</Style>
+                                <Width>0.5pt</Width>
                               </RightBorder>
                               <BackgroundColor>White</BackgroundColor>
                               <VerticalAlign>Middle</VerticalAlign>
@@ -1539,6 +1550,11 @@ ORDER BY Name ASC</CommandText>
                                   <BottomBorder>
                                     <Style>Solid</Style>
                                   </BottomBorder>
+                                  <RightBorder>
+                                    <Color>#e5e5e5</Color>
+                                    <Style>Solid</Style>
+                                    <Width>0.5pt</Width>
+                                  </RightBorder>
                                   <BackgroundColor>WhiteSmoke</BackgroundColor>
                                   <VerticalAlign>Middle</VerticalAlign>
                                   <PaddingLeft>2pt</PaddingLeft>
@@ -1572,7 +1588,7 @@ ORDER BY Name ASC</CommandText>
             </TablixRowHierarchy>
             <RepeatColumnHeaders>true</RepeatColumnHeaders>
             <FixedColumnHeaders>true</FixedColumnHeaders>
-            <DataSetName>Report7</DataSetName>
+            <DataSetName>Report6</DataSetName>
             <Top>23.21831mm</Top>
             <Left>0mm</Left>
             <Height>29mm</Height>

@@ -23,11 +23,13 @@
         </QueryParameters>
         <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
 --DECLARE @LogId INT
---SET @LogId = 1
+--SET @LogId = 6904879
 -------------------------------------------------------------------
 
 SELECT  --AllCriterionGroupScore  --оценки выбранного лога пакета с учетом всех групп критериев
 	--ScoreLog.ValidationLog
+	--ScoreLog.Id
+	--,ScoreLog.MaxScoreId
 	CriterionGroup.Id			AS CriterionGroupId
 	,CriterionGroup.Object		AS CriterionGroupName
 	,CriterionGroup.ScoreValue	AS MaxCriterionGroupValue
@@ -40,6 +42,8 @@ SELECT  --AllCriterionGroupScore  --оценки выбранного лога �
 FROM (
 	SELECT --ScoreLog  --оценки выбранного лога пакета
 		Score.ValidationLog
+		,Score.Id
+		,MAX(Score.Id) OVER (PARTITION BY Score.Criterion) AS MaxScoreId --Для удаления повторяющихся оценок по одному критерию берем оценку с большим Id
 		,Score.Criterion
 		,Score.MemberGuid
 		,Score.Value
@@ -52,7 +56,10 @@ RIGHT JOIN Criterion
 	ON Criterion.Code = ScoreLog.Criterion
 INNER JOIN CriterionGroup
 	ON Criterion.CriterionGroup = CriterionGroup.Id
-</CommandText>
+WHERE
+	(ScoreLog.Id = ScoreLog.MaxScoreId --Убираем дубликаты
+	AND ScoreLog.Id is not null)
+	OR ScoreLog.Id is null</CommandText>
         <rd:UseGenericDesigner>true</rd:UseGenericDesigner>
       </Query>
       <Fields>
@@ -674,6 +681,7 @@ ORDER BY PackageId
                                     <Style>
                                       <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
                                       <Color>DimGray</Color>
                                     </Style>
@@ -836,6 +844,7 @@ ORDER BY PackageId
                                         <Style>
                                           <FontStyle>Italic</FontStyle>
                                           <FontFamily>Tahoma</FontFamily>
+                                          <FontSize>11pt</FontSize>
                                           <FontWeight>Bold</FontWeight>
                                           <Color>DimGray</Color>
                                         </Style>
@@ -944,6 +953,7 @@ ORDER BY PackageId
                                         <Style>
                                           <FontStyle>Italic</FontStyle>
                                           <FontFamily>Tahoma</FontFamily>
+                                          <FontSize>11pt</FontSize>
                                           <FontWeight>Bold</FontWeight>
                                           <Color>DimGray</Color>
                                         </Style>
@@ -1069,6 +1079,7 @@ ORDER BY PackageId
                                   <TextRun>
                                     <Value />
                                     <Style>
+                                      <FontSize>11pt</FontSize>
                                       <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>

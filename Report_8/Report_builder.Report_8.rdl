@@ -36,61 +36,93 @@
 --SET @DateEnd = '2021-06-01'
 -------------------------------------------------------------------
 
+
+if object_id('tempdb..#tmp_ValidationLog') is not null
+	DROP TABLE #tmp_ValidationLog
+
+CREATE TABLE #tmp_ValidationLog (
+								LogId BIGINT PRIMARY KEY
+								,Incoming BIT
+								,ReceivedOn DATETIME2(7)
+							) --Таблица всех валидных последних логов
+
+INSERT INTO #tmp_ValidationLog  
+	SELECT -- ActualLogs - Id последних валидных логов по каждому обработанному пакету в период отчета
+		ValidationLog.Id		AS LogId
+		,SuccesPackage.Incoming
+		,SuccesPackage.ReceivedOn
+	FROM
+		ValidationLog		
+	INNER JOIN (
+		SELECT -- SuccesPackage = даты последних валидных логов по каждому обработанному пакету в период отчета. Если у пакета несколько логов валидаций, то для каждого запоминаем свой ValidatedOn и максимальный ValidatedOn по пакету. А потом сравним их и отберем те, что равны
+			SuccesLogs.Package		AS PackageId
+			,SuccesLogs.Incoming
+			,SuccesLogs.ValidatedOn
+			,MAX(SuccesLogs.ValidatedOn) OVER (PARTITION BY SuccesLogs.Package)	AS Max_ValidatedOn
+			,SuccesLogs.ReceivedOn	
+		FROM (	
+			SELECT -- SuccesLogs = все валидные логи по всем обработанным пакетам в период отчета
+				ValidationLog.Package
+				,ValidationLog.ValidatedOn
+				,Package.Incoming
+				,Package.ReceivedOn
+			FROM
+				ValidationLog
+			INNER JOIN Package
+				ON Package.Id = ValidationLog.Package
+			WHERE 
+				ValidationLog.Success = 1
+				AND Package.Processed = 1
+				AND Incoming = 0
+				AND ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+				AND ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета				
+		) AS SuccesLogs
+	) AS SuccesPackage
+		ON SuccesPackage.PackageId = ValidationLog.Package
+		AND SuccesPackage.Max_ValidatedOn = ValidationLog.ValidatedOn
+	WHERE
+		SuccesPackage.Max_ValidatedOn = SuccesPackage.ValidatedOn
+
 SELECT  --AllCriterionGroupScore  --оценки выбранного лога пакета с учетом всех групп критериев
-	CriterionGroup.Object				AS CriterionGroupName
-	,CriterionGroup.Id					AS CriterionGroupId  
+	CriterionGroup.Object							AS CriterionGroupName
+	,CriterionGroup.Id								AS CriterionGroupId  
 	,CAST(SUBSTRING(Criterion.Code, 3, 2) AS INT)	AS CriterionId  
-	,Criterion.Name						AS CriterionName
-	--,CriterionGroup.ScoreValue		AS MaxCriterionGroupValue
-	,Criterion.ScoreValue				AS MaxCriterionValue
+	,Criterion.Name									AS CriterionName
+	--,CriterionGroup.ScoreValue					AS MaxCriterionGroupValue
+	,Criterion.ScoreValue							AS MaxCriterionValue
 	,ScoreLog.AvgScore
 FROM (
 	SELECT --ScoreLog  --средние оценки по каждому критерию всех выбранных логов по выбраному участнику
-		Score.Criterion	
-		,AVG(Score.Value)	AS AvgScore
-	FROM Score
-	INNER JOIN (
-		SELECT -- LastLog - Id последних валидных логов по каждому обработанному пакету
-			ValidationLog.Id AS LogId
+		ScoreGrouped.Criterion	
+		,AVG(ScoreGrouped.Value)	AS AvgScore
+	FROM #tmp_ValidationLog
+	INNER JOIN ( --ScoreGrouped = оценки всех пакетов с удалением дубликатов оценок по критериям
+		SELECT
+			DISTINCT 
+			Score.ValidationLog
+			,Score.Value
+			,Score.MemberGuid
+			--,Criterion.CriterionGroup
+			,Score.Criterion
 		FROM
-			ValidationLog		
-		INNER JOIN (
-			SELECT -- SuccesPackage = даты последних валидных логов по каждому обработанному пакету
-				SuccesLogs.Package				AS PackageId
-				,MAX(SuccesLogs.ValidatedOn)	AS Max_ValidatedOn
-			FROM (	
-				SELECT -- SuccesLogs = все валидные логи по всем обработанным пакетам в период отчета
-					ValidationLog.Package
-					,ValidationLog.ValidatedOn
-				FROM
-					ValidationLog
-				INNER JOIN Package
-					ON Package.Id = ValidationLog.Package
-				WHERE 
-					ValidationLog.Success = 1 --??????
-					AND Package.Processed = 1
-					AND Incoming = 0
-					AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-					AND Package.ReceivedOn &lt;= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
-			) AS SuccesLogs
-			GROUP BY 
-				SuccesLogs.Package
-		) AS SuccesPackage
-			ON SuccesPackage.PackageId = ValidationLog.Package
-			AND SuccesPackage.Max_ValidatedOn = ValidationLog.ValidatedOn
-	) AS LastLog
-		ON LastLog.LogId = Score.ValidationLog
+			Score 
+	) AS ScoreGrouped
+		ON #tmp_ValidationLog.LogId = ScoreGrouped.ValidationLog
 	INNER JOIN Member
-		ON Member.Guid = Score.MemberGuid
+		ON Member.Guid = ScoreGrouped.MemberGuid
 	WHERE 
 		Member.Guid = @Member
 	GROUP BY
-		Score.Criterion	
+		ScoreGrouped.Criterion	
 ) AS ScoreLog
 RIGHT JOIN Criterion
 	ON Criterion.Code = ScoreLog.Criterion
 INNER JOIN CriterionGroup
-	ON Criterion.CriterionGroup = CriterionGroup.Id</CommandText>
+	ON Criterion.CriterionGroup = CriterionGroup.Id
+
+
+
+</CommandText>
         <rd:UseGenericDesigner>true</rd:UseGenericDesigner>
       </Query>
       <Fields>
@@ -145,24 +177,13 @@ ORDER BY Member.Name ASC</CommandText>
     <DataSet Name="GetCountPackages">
       <Query>
         <DataSourceName>DataSource1</DataSourceName>
-        <QueryParameters>
-          <QueryParameter Name="@Member">
-            <Value>=Parameters!Member.Value</Value>
-          </QueryParameter>
-          <QueryParameter Name="@DateStart">
-            <Value>=Parameters!DateStart.Value</Value>
-          </QueryParameter>
-          <QueryParameter Name="@DateEnd">
-            <Value>=Parameters!DateEnd.Value</Value>
-          </QueryParameter>
-        </QueryParameters>
         <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
---DECLARE @Member CHAR(36)
---DECLARE @DateStart DateTime2
---DECLARE @DateEnd DateTime2
---SET @Member = 'ecc99082-f3b4-4028-8007-a7f69d6cd1d7'
---SET @DateStart = '2021-01-01'
---SET @DateEnd = '2021-06-01'
+DECLARE @Member CHAR(36)
+DECLARE @DateStart DateTime2
+DECLARE @DateEnd DateTime2
+SET @Member = 'ecc99082-f3b4-4028-8007-a7f69d6cd1d7'
+SET @DateStart = '2021-04-01'
+SET @DateEnd = '2021-06-01'
 -------------------------------------------------------------------
 
 SELECT --Кол-во валидных и обработанных пакетов в период отчета по участнику
@@ -201,7 +222,8 @@ FROM (
 	) AS SuccesLogs
 		ON SuccesLogs.Package = SuccesDate.Package
 		AND SuccesLogs.ValidatedOn = SuccesDate.MaxValidatedOn
-) AS Pack_Count </CommandText>
+) AS Pack_Count
+</CommandText>
       </Query>
       <Fields>
         <Field Name="PackagesCount">
@@ -222,7 +244,7 @@ FROM (
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>Ведомость выставления форматной оценки сообщения</Value>
+                    <Value>Ведомость выставления средней форматной оценки сообщений</Value>
                     <Style>
                       <FontFamily>Yu Gothic UI Light</FontFamily>
                       <FontSize>20pt</FontSize>
@@ -238,7 +260,7 @@ FROM (
             <rd:DefaultName>ReportTitle</rd:DefaultName>
             <Top>0mm</Top>
             <Height>10.16mm</Height>
-            <Width>187.89645mm</Width>
+            <Width>236.15647mm</Width>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -605,6 +627,7 @@ FROM (
                                     <Style>
                                       <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
                                       <Color>DimGray</Color>
                                     </Style>
@@ -767,6 +790,7 @@ FROM (
                                         <Style>
                                           <FontStyle>Italic</FontStyle>
                                           <FontFamily>Tahoma</FontFamily>
+                                          <FontSize>11pt</FontSize>
                                           <FontWeight>Bold</FontWeight>
                                           <Color>DimGray</Color>
                                         </Style>
@@ -875,6 +899,7 @@ FROM (
                                         <Style>
                                           <FontStyle>Italic</FontStyle>
                                           <FontFamily>Tahoma</FontFamily>
+                                          <FontSize>11pt</FontSize>
                                           <FontWeight>Bold</FontWeight>
                                           <Color>DimGray</Color>
                                         </Style>
@@ -1319,7 +1344,7 @@ FROM (
           </Border>
         </Style>
       </Body>
-      <Width>187.89647mm</Width>
+      <Width>236.15647mm</Width>
       <Page>
         <PageFooter>
           <Height>8.11389mm</Height>
@@ -1429,7 +1454,7 @@ FROM (
     </ReportParameter>
     <ReportParameter Name="Member">
       <DataType>String</DataType>
-      <Prompt>Member</Prompt>
+      <Prompt>Участник</Prompt>
       <ValidValues>
         <DataSetReference>
           <DataSetName>GetMember</DataSetName>

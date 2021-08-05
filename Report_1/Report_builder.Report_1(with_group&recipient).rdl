@@ -115,7 +115,7 @@ FROM(
 			ON ValidationLog.Package = Package.Id
 		WHERE
 			Processed = 1
-			--AND Incoming = 0
+			AND Success = 1
 			AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
 			AND Package.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
 	) AS ProcessedPackage
@@ -142,7 +142,6 @@ FROM(
 		,ISNULL(EM.[2.5], 0)			AS EM_2_5
 		,ISNULL(EM.[2.2], 0)			AS EM_2_2
 		,ISNULL(EM.[2.0], 0)			AS EM_2_0
-		,ISNULL(EM.[x], 0)				AS EM_X
 		,ISNULL(ED.[AllContainer], 0)	AS AllContainer
 		,ISNULL(ED.[2.7.1], 0)			AS ED_2_7_1
 		,ISNULL(ED.[2.7], 0)			AS ED_2_7
@@ -151,14 +150,13 @@ FROM(
 	FROM (
 		SELECT --EM = оценка перехода на 2.7.1 в период отчета по ЭС
 				MemberEM
-				,'AllMessage' = ISNULL(VersionMessage.[2.7.1], 0) + ISNULL(VersionMessage.[2.7], 0) + ISNULL(VersionMessage.[2.6], 0) + ISNULL(VersionMessage.[2.5], 0) + ISNULL(VersionMessage.[2.2], 0) + ISNULL(VersionMessage.[2.0], 0) + ISNULL(VersionMessage.[x], 0)
+				,'AllMessage' = ISNULL(VersionMessage.[2.7.1], 0) + ISNULL(VersionMessage.[2.7], 0) + ISNULL(VersionMessage.[2.6], 0) + ISNULL(VersionMessage.[2.5], 0) + ISNULL(VersionMessage.[2.2], 0) + ISNULL(VersionMessage.[2.0], 0)
 				,VersionMessage.[2.7.1]	AS '2.7.1'
 				,VersionMessage.[2.7]	AS '2.7'
 				,VersionMessage.[2.6]	AS '2.6'
 				,VersionMessage.[2.5]	AS '2.5'
 				,VersionMessage.[2.2]	AS '2.2'
 				,VersionMessage.[2.0]	AS '2.0'
-				,VersionMessage.[x]		AS 'x'
 		FROM (
 			SELECT --Определяем кол-во пакетов по каждой версии формата
 				#Tmp.SenderGuid AS MemberEM
@@ -172,7 +170,7 @@ FROM(
 		PIVOT (
 		MAX(CountPackageXmlVersion)
 			FOR PackageXmlVersion
-			IN([2.7.1],[2.7],[2.6],[2.5],[2.2],[2.0], [x])
+			IN([2.7.1],[2.7],[2.6],[2.5],[2.2],[2.0])
 		) AS VersionMessage
 	) AS EM
 	LEFT JOIN (
@@ -263,10 +261,6 @@ FROM(
         </Field>
         <Field Name="EM_2_0">
           <DataField>EM_2_0</DataField>
-          <rd:TypeName>System.Int32</rd:TypeName>
-        </Field>
-        <Field Name="EM_X">
-          <DataField>EM_X</DataField>
           <rd:TypeName>System.Int32</rd:TypeName>
         </Field>
         <Field Name="AllContainer">
@@ -501,7 +495,7 @@ order by name asc</CommandText>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -554,7 +548,7 @@ order by name asc</CommandText>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -636,10 +630,7 @@ order by name asc</CommandText>
                   <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>21mm</Width>
-                </TablixColumn>
-                <TablixColumn>
-                  <Width>21mm</Width>
+                  <Width>30mm</Width>
                 </TablixColumn>
               </TablixColumns>
               <TablixRows>
@@ -1257,49 +1248,6 @@ order by name asc</CommandText>
                             </Paragraph>
                           </Paragraphs>
                           <rd:DefaultName>Textbox109</rd:DefaultName>
-                          <Style>
-                            <Border>
-                              <Style>None</Style>
-                            </Border>
-                            <BottomBorder>
-                              <Color>#e5e5e5</Color>
-                              <Style>Solid</Style>
-                            </BottomBorder>
-                            <RightBorder>
-                              <Color>#e5e5e5</Color>
-                              <Style>Solid</Style>
-                            </RightBorder>
-                            <PaddingLeft>2pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
-                          </Style>
-                        </Textbox>
-                      </CellContents>
-                    </TablixCell>
-                    <TablixCell>
-                      <CellContents>
-                        <Textbox Name="Textbox9">
-                          <CanGrow>true</CanGrow>
-                          <KeepTogether>true</KeepTogether>
-                          <Paragraphs>
-                            <Paragraph>
-                              <TextRuns>
-                                <TextRun>
-                                  <Value>=IIf(Fields!EM_X.Value = 0, "-", Fields!EM_X.Value)</Value>
-                                  <Style>
-                                    <FontFamily>Tahoma</FontFamily>
-                                    <Format>#,0</Format>
-                                    <Color>#4d4d4d</Color>
-                                  </Style>
-                                </TextRun>
-                              </TextRuns>
-                              <Style>
-                                <TextAlign>Center</TextAlign>
-                              </Style>
-                            </Paragraph>
-                          </Paragraphs>
-                          <rd:DefaultName>Textbox9</rd:DefaultName>
                           <Style>
                             <Border>
                               <Style>None</Style>
@@ -1962,49 +1910,6 @@ order by name asc</CommandText>
                         </Textbox>
                       </CellContents>
                     </TablixCell>
-                    <TablixCell>
-                      <CellContents>
-                        <Textbox Name="Textbox36">
-                          <KeepTogether>true</KeepTogether>
-                          <Paragraphs>
-                            <Paragraph>
-                              <TextRuns>
-                                <TextRun>
-                                  <Value />
-                                  <Style>
-                                    <FontFamily>Tahoma</FontFamily>
-                                    <FontSize>1pt</FontSize>
-                                    <Color>#4d4d4d</Color>
-                                  </Style>
-                                </TextRun>
-                              </TextRuns>
-                              <Style>
-                                <TextAlign>Center</TextAlign>
-                              </Style>
-                            </Paragraph>
-                          </Paragraphs>
-                          <rd:DefaultName>Textbox36</rd:DefaultName>
-                          <Style>
-                            <Border>
-                              <Style>None</Style>
-                            </Border>
-                            <BottomBorder>
-                              <Color>#e5e5e5</Color>
-                              <Style>Solid</Style>
-                            </BottomBorder>
-                            <RightBorder>
-                              <Color>#e5e5e5</Color>
-                              <Style>Solid</Style>
-                            </RightBorder>
-                            <BackgroundColor>WhiteSmoke</BackgroundColor>
-                            <PaddingLeft>2pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
-                          </Style>
-                        </Textbox>
-                      </CellContents>
-                    </TablixCell>
                   </TablixCells>
                 </TablixRow>
               </TablixRows>
@@ -2027,7 +1932,7 @@ order by name asc</CommandText>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -2081,7 +1986,7 @@ order by name asc</CommandText>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2137,7 +2042,7 @@ order by name asc</CommandText>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -2188,7 +2093,7 @@ order by name asc</CommandText>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2244,7 +2149,7 @@ order by name asc</CommandText>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -2298,7 +2203,7 @@ order by name asc</CommandText>
                                   <FontStyle>Italic</FontStyle>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -2348,7 +2253,7 @@ order by name asc</CommandText>
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -2397,7 +2302,7 @@ order by name asc</CommandText>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2447,7 +2352,7 @@ order by name asc</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2497,7 +2402,7 @@ order by name asc</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2547,7 +2452,7 @@ order by name asc</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2600,7 +2505,7 @@ order by name asc</CommandText>
                                   <FontStyle>Italic</FontStyle>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -2650,7 +2555,7 @@ order by name asc</CommandText>
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -2670,7 +2575,8 @@ order by name asc</CommandText>
                           </LeftBorder>
                           <RightBorder>
                             <Color>#e5e5e5</Color>
-                            <Width>1pt</Width>
+                            <Style>Solid</Style>
+                            <Width>0.5pt</Width>
                           </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
                           <VerticalAlign>Middle</VerticalAlign>
@@ -2699,7 +2605,7 @@ order by name asc</CommandText>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2752,7 +2658,7 @@ order by name asc</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2805,7 +2711,7 @@ order by name asc</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2858,7 +2764,7 @@ order by name asc</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2911,7 +2817,7 @@ order by name asc</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -2964,7 +2870,22 @@ order by name asc</CommandText>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style>
+                                  <TextAlign>Center</TextAlign>
+                                </Style>
+                              </Paragraph>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>(не определен)</Value>
+                                    <Style>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>11pt</FontSize>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -3002,57 +2923,6 @@ order by name asc</CommandText>
                       <TablixMembers>
                         <TablixMember />
                       </TablixMembers>
-                    </TablixMember>
-                    <TablixMember>
-                      <TablixHeader>
-                        <Size>12.90633mm</Size>
-                        <CellContents>
-                          <Textbox Name="Textbox8">
-                            <CanGrow>true</CanGrow>
-                            <KeepTogether>true</KeepTogether>
-                            <Paragraphs>
-                              <Paragraph>
-                                <TextRuns>
-                                  <TextRun>
-                                    <Value>Не определен</Value>
-                                    <Style>
-                                      <FontFamily>Tahoma</FontFamily>
-                                      <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
-                                    </Style>
-                                  </TextRun>
-                                </TextRuns>
-                                <Style>
-                                  <TextAlign>Center</TextAlign>
-                                </Style>
-                              </Paragraph>
-                            </Paragraphs>
-                            <rd:DefaultName>Textbox8</rd:DefaultName>
-                            <Style>
-                              <Border>
-                                <Color>#4e648a</Color>
-                                <Style>Solid</Style>
-                              </Border>
-                              <BottomBorder>
-                                <Width>1.25pt</Width>
-                              </BottomBorder>
-                              <LeftBorder>
-                                <Style>None</Style>
-                              </LeftBorder>
-                              <RightBorder>
-                                <Color>#e5e5e5</Color>
-                                <Width>1pt</Width>
-                              </RightBorder>
-                              <BackgroundColor>White</BackgroundColor>
-                              <VerticalAlign>Middle</VerticalAlign>
-                              <PaddingLeft>2pt</PaddingLeft>
-                              <PaddingRight>2pt</PaddingRight>
-                              <PaddingTop>2pt</PaddingTop>
-                              <PaddingBottom>2pt</PaddingBottom>
-                            </Style>
-                          </Textbox>
-                        </CellContents>
-                      </TablixHeader>
                     </TablixMember>
                   </TablixMembers>
                 </TablixMember>
@@ -3162,7 +3032,7 @@ order by name asc</CommandText>
             <Top>25.40254mm</Top>
             <Left>0mm</Left>
             <Height>26.74258mm</Height>
-            <Width>462.75774mm</Width>
+            <Width>450.75774mm</Width>
             <ZIndex>5</ZIndex>
             <Style>
               <Border>
@@ -3274,7 +3144,7 @@ order by name asc</CommandText>
           </Border>
         </Style>
       </Body>
-      <Width>462.75774mm</Width>
+      <Width>450.75774mm</Width>
       <Page>
         <PageFooter>
           <Height>8.11389mm</Height>
@@ -3301,7 +3171,7 @@ order by name asc</CommandText>
               </Paragraphs>
               <rd:DefaultName>ExecutionTime</rd:DefaultName>
               <Top>1.76389mm</Top>
-              <Left>415.6044mm</Left>
+              <Left>403.6044mm</Left>
               <Height>6.35mm</Height>
               <Width>47.15334mm</Width>
               <Style>
@@ -3334,7 +3204,7 @@ order by name asc</CommandText>
               </Paragraphs>
               <rd:DefaultName>Textbox87</rd:DefaultName>
               <Top>1.76389mm</Top>
-              <Left>380.75774mm</Left>
+              <Left>368.75774mm</Left>
               <Height>6.35mm</Height>
               <Width>34.84666mm</Width>
               <ZIndex>1</ZIndex>

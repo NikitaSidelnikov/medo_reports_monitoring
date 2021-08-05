@@ -35,10 +35,10 @@
 --DECLARE @DateEnd DateTime2
 --DECLARE @DateStartCompare DateTime2
 --DECLARE @DateEndCompare DateTime2
---SET @DateStart = '2021-03-01'
---SET @DateEnd = '2021-03-31'
---SET @DateStartCompare = '2021-04-01'
---SET @DateEndCompare = '2021-04-30'
+--SET @DateStart = '2021-05-01'
+--SET @DateEnd = '2021-05-20'
+--SET @DateStartCompare = '2021-06-01'
+--SET @DateEndCompare = '2021-06-21'
 -------------------------------------------------------------------
 
 IF OBJECT_ID('tempdb..#Tmp') is not null
@@ -52,7 +52,7 @@ CREATE TABLE #Tmp (
 					,ContainerXmlVersion nvarchar(255)
 					,Type INT
 					--,Success BIT
-					,ReceivedOn DateTime2(7))
+					,Period INT)
 INSERT INTO #Tmp
 /*
 Type = 
@@ -76,7 +76,18 @@ SELECT --ActualPackages = предыдущая таблица ActualPackages  с
 			PackageType.Type
 		END			AS Type
 	--,ActualPackages.Success
-	,ActualPackages.ReceivedOn
+	,CASE WHEN
+			(ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			AND ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета			
+			)
+			THEN 1 --период отчета
+		WHEN 
+			(ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0') --начало периода сравнения
+			AND ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '23', '59', '59', '0') --конец периода сравнения
+			) 
+			THEN 2 --период сравнения
+		ELSE 0 --Пакеты, не входящие в периоды очтета или сравнения
+	END AS Period
 FROM (
 	SELECT   --PackageType = определяем тип пакетов (не учитывая период отчета)
 		ValidationLog
@@ -137,6 +148,7 @@ RIGHT JOIN (
 		WHERE
 			Processed = 1
 			AND Incoming = 0
+			AND Success = 1
 	) AS ProcessedPackage
 		ON ProcessedPackage.Package = ActualLog.PackageId
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
@@ -153,105 +165,89 @@ FROM (
 		Member.Name			AS Member
 		,ChangesDynamic = ROUND(
 							CASE
-							WHEN Report1.AllContainer1 &gt; 0 AND Report2.AllContainer2 &gt; 0
-								THEN 100*((100*Report1.[2.7.1_1]/Report1.AllContainer1) - (100*Report2.[2.7.1_2]/Report2.AllContainer2))/(100+ABS(100*Report1.[2.7.1_1]/Report1.AllContainer1) + ABS(100*Report2.[2.7.1_2]/Report2.AllContainer2))
-							WHEN Report1.AllContainer1 &gt; 0 AND (Report2.AllContainer2 = 0 OR Report2.AllContainer2 is null)
-								THEN 100*((100*Report1.[2.7.1_1]/Report1.AllContainer1) - 0)/(100+ABS(100*Report1.[2.7.1_1]/Report1.AllContainer1) + 0)
-							WHEN (Report1.AllContainer1 = 0 OR Report1.AllContainer1 is null) AND Report2.AllContainer2 &gt; 0
-								THEN 100*(0 - (100*Report2.[2.7.1_2]/Report2.AllContainer2))/(100+0 + ABS(100*Report2.[2.7.1_2]/Report2.AllContainer2))
+							WHEN Format_Versions.AllContainer_1 &gt; 0 AND Format_Versions.AllContainer_2 &gt; 0
+								THEN 100*((100*Format_Versions.[2.7.1_1]/Format_Versions.AllContainer_1) - (100*Format_Versions.[2.7.1_2]/Format_Versions.AllContainer_2))/(100+ABS(100*Format_Versions.[2.7.1_1]/Format_Versions.AllContainer_1) + ABS(100*Format_Versions.[2.7.1_2]/Format_Versions.AllContainer_2))
+							WHEN Format_Versions.AllContainer_1 &gt; 0 AND (Format_Versions.AllContainer_2 = 0 OR Format_Versions.AllContainer_2 is null)
+								THEN 100*((100*Format_Versions.[2.7.1_1]/Format_Versions.AllContainer_1) - 0)/(100+ABS(100*Format_Versions.[2.7.1_1]/Format_Versions.AllContainer_1) + 0)
+							WHEN (Format_Versions.AllContainer_1 = 0 OR Format_Versions.AllContainer_1 is null) AND Format_Versions.AllContainer_2 &gt; 0
+								THEN 100*(0 - (100*Format_Versions.[2.7.1_2]/Format_Versions.AllContainer_2))/(100+0 + ABS(100*Format_Versions.[2.7.1_2]/Format_Versions.AllContainer_2))
 							ELSE NULL
 							END
 						, 2)
 		,'Score1' = ROUND(
-						IIF(Report1.AllContainer1 &gt; 0 ,100 * Report1.[2.7.1_1]/Report1.AllContainer1 ,0)
+						IIF(Format_Versions.AllContainer_1 &gt; 0 ,100 * Format_Versions.[2.7.1_1]/Format_Versions.AllContainer_1 ,NULL)
 					, 2)
-		,Report1.AllContainer1
-		,Report1.[2.7.1_1]
+		,Format_Versions.AllContainer_1
+		,Format_Versions.[2.7.1_1]
 		,'Score2' = ROUND(
-						IIF(Report2.AllContainer2 &gt; 0 ,100 * Report2.[2.7.1_2]/Report2.AllContainer2 ,0)
+						IIF(Format_Versions.AllContainer_2 &gt; 0 ,100 * Format_Versions.[2.7.1_2]/Format_Versions.AllContainer_2 ,NULL)
 					, 2)
-		,Report2.AllContainer2
-		,Report2.[2.7.1_2]
+		,Format_Versions.AllContainer_2
+		,Format_Versions.[2.7.1_2]
 	FROM (
-		SELECT --EM = оценка перехода на 2.7.1 в период сравнения по ЭС
-			MemberED AS MemberED2
-			,'AllContainer2' = CAST(ISNULL(VersionContainer.[2.7.1], 0) + ISNULL(VersionContainer.[2.7], 0) + ISNULL(VersionContainer.[NoContainer], 0) + ISNULL(VersionContainer.[x], 0) AS FLOAT)
-			,CAST(ISNULL(VersionContainer.[2.7.1], 0) AS FLOAT) AS '2.7.1_2'
-		FROM (
-			SELECT --Containers = Кол-во каждой версии ЭД по каждому участнику в период сравнения
-				MemberED
-				,ContainerXmlVersion
-				,COUNT(*) AS CountContainerXmlVersion
+		SELECT
+			Member
+			,MAX(AllContainer_1)	AS AllContainer_1
+			,MAX(AllContainer_2)	AS AllContainer_2
+			,MAX([2.7.1_1])			AS '2.7.1_1'
+			,MAX([2.7.1_2])			AS '2.7.1_2'
+		FROM(
+			SELECT --Format_Versions = оценка перехода на 2.7.1 в периоды сравнения и отчета
+				Member
+				,CAST(ISNULL([2.7.1], 0) + ISNULL([2.7], 0) + ISNULL([NoContainer], 0) + ISNULL([x], 0) AS FLOAT)			AS 'AllContainer_1'
+				,CAST(ISNULL([2.7.1], 0) AS FLOAT)																			AS '2.7.1_1'
+				,CAST(ISNULL([2.7.1_2], 0) + ISNULL([2.7_2], 0) + ISNULL([NoContainer_2], 0) + ISNULL([x_2], 0) AS FLOAT)	AS 'AllContainer_2'
+				,CAST(ISNULL([2.7.1_2], 0) AS FLOAT)																		AS '2.7.1_2'
 			FROM (
-				SELECT 
-					#Tmp.MemberGuid AS MemberED
-					,CASE 
-						WHEN #Tmp.Type = 3 				--Документ
-							THEN 'NoContainer'
-						WHEN #Tmp.Type = 4 AND #Tmp.ContainerXmlVersion is null
-							THEN 'x'					--ТК без формата
-						ELSE
-							#Tmp.ContainerXmlVersion	--ТК
-						END 
-					AS ContainerXmlVersion			
-				FROM #Tmp
-				WHERE
-					#Tmp.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0') --начало периода отчета
-					AND #Tmp.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '23', '59', '59', '0') --конец периода отчета
-			) AS Containers
-			GROUP BY 
-				MemberED
-				,ContainerXmlVersion
-		)x
-		PIVOT (
-		MAX(CountContainerXmlVersion)
-			FOR ContainerXmlVersion
-			IN([2.7.1],[2.7],[NoContainer],[x])
-		) AS VersionContainer
-	) AS Report2
-	FULL OUTER JOIN (
-		SELECT --EM = оценка перехода на 2.7.1 в период отчета по ЭС
-			MemberED AS MemberED1
-			,'AllContainer1' = CAST(ISNULL(VersionContainer.[2.7.1], 0) + ISNULL(VersionContainer.[2.7], 0) + ISNULL(VersionContainer.[NoContainer], 0) + ISNULL(VersionContainer.[x], 0) AS FLOAT)
-			,CAST(ISNULL(VersionContainer.[2.7.1], 0) AS FLOAT) AS '2.7.1_1'
-		FROM (
-			SELECT --Containers = Кол-во каждой версии ЭД по каждому участнику в период отчета
-				MemberED
-				,ContainerXmlVersion
-				,COUNT(*) AS CountContainerXmlVersion
-			FROM (
-				SELECT 
-					#Tmp.MemberGuid AS MemberED
-					,CASE 
-						WHEN #Tmp.Type = 3 				--Документ
-							THEN 'NoContainer'
-						WHEN #Tmp.Type = 4 AND #Tmp.ContainerXmlVersion is null
-							THEN 'x'					--ТК без формата
-						ELSE
-							#Tmp.ContainerXmlVersion	--ТК
-						END 
-					AS ContainerXmlVersion			
-				FROM #Tmp
-				WHERE
-					#Tmp.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-					AND #Tmp.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
-			) AS Containers
-			GROUP BY 
-				MemberED
-				,ContainerXmlVersion
-		)x
-		PIVOT (
-		MAX(CountContainerXmlVersion)
-			FOR ContainerXmlVersion
-			IN([2.7.1],[2.7],[NoContainer],[x])
-		) AS VersionContainer
-	) AS Report1
-		ON Report1.MemberED1 = Report2.MemberED2
+				SELECT --Containers = Кол-во каждой версии ЭД по каждому участнику в периоды сравнения и отчета
+					Member
+					,Period
+					,IIF(Period = 1, ContainerXmlVersion, NULL)			AS ContainerXmlVersion_1
+					,IIF(Period = 2, ContainerXmlVersion+'_2', NULL)	AS ContainerXmlVersion_2
+					,SUM(IIF(Period = 1, 1, 0))							AS CountContainerXmlVersion_1
+					,SUM(IIF(Period = 2, 1, 0))							AS CountContainerXmlVersion_2
+				FROM (	
+					SELECT 
+						#Tmp.MemberGuid AS Member
+						,#Tmp.Period
+						,CASE 
+							WHEN #Tmp.Type = 3 				--Документ
+								THEN 'NoContainer'
+							WHEN #Tmp.Type = 4 AND #Tmp.ContainerXmlVersion is null
+								THEN 'x'					--ТК без формата
+							ELSE
+								#Tmp.ContainerXmlVersion	--ТК
+							END 
+						AS ContainerXmlVersion			
+					FROM #Tmp
+					WHERE
+						Period IN (1, 2)
+				) AS Containers
+				GROUP BY 
+					Member
+					,ContainerXmlVersion
+					,Period
+			)x
+			PIVOT (
+				MAX(CountContainerXmlVersion_1)
+				FOR ContainerXmlVersion_1
+				IN([2.7.1],[2.7],[NoContainer],[x])
+			) AS VersionContainer_1
+			PIVOT (
+				MAX(CountContainerXmlVersion_2)
+				FOR ContainerXmlVersion_2
+				IN([2.7.1_2],[2.7_2],[NoContainer_2],[x_2])
+			) AS VersionContainer_2
+		) AS Versions_Pivot
+		GROUP BY
+			Member
+	) AS Format_Versions
 	RIGHT JOIN Member
-		ON Member.Guid = IIF(Report2.MemberED2 is not null, Report2.MemberED2, Report1.MemberED1) COLLATE SQL_Latin1_General_CP1_CI_AS
+		ON Member.Guid = Format_Versions.Member COLLATE SQL_Latin1_General_CP1_CI_AS
 	WHERE
 		Member.Active = 1
-) AS Final_table</CommandText>
+) AS Final_table
+</CommandText>
       </Query>
       <Fields>
         <Field Name="Member">
@@ -270,8 +266,8 @@ FROM (
           <DataField>Score1</DataField>
           <rd:TypeName>System.Double</rd:TypeName>
         </Field>
-        <Field Name="AllContainer1">
-          <DataField>AllContainer1</DataField>
+        <Field Name="AllContainer_1">
+          <DataField>AllContainer_1</DataField>
           <rd:TypeName>System.Double</rd:TypeName>
         </Field>
         <Field Name="ID2_7_1_1">
@@ -282,8 +278,8 @@ FROM (
           <DataField>Score2</DataField>
           <rd:TypeName>System.Double</rd:TypeName>
         </Field>
-        <Field Name="AllContainer2">
-          <DataField>AllContainer2</DataField>
+        <Field Name="AllContainer_2">
+          <DataField>AllContainer_2</DataField>
           <rd:TypeName>System.Double</rd:TypeName>
         </Field>
         <Field Name="ID2_7_1_2">
@@ -643,7 +639,7 @@ FROM (
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=IIF(IsNothing(Fields!AllContainer1.Value) = TRUE, "-", Cstr(Fields!Score1.Value)+" %")</Value>
+                                  <Value>=IIF(IsNothing(Fields!Score1.Value) = TRUE, "-", Cstr(Fields!Score1.Value)+" %")</Value>
                                   <Style>
                                     <FontStyle>Italic</FontStyle>
                                     <FontFamily>Tahoma</FontFamily>
@@ -683,10 +679,10 @@ FROM (
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=IIF(IsNothing(Fields!AllContainer1.Value) = TRUE, "-", Fields!AllContainer1.Value)</Value>
+                                  <Value>=IIF(IsNothing(Fields!Score1.Value) = TRUE, "-", Fields!AllContainer_1.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
-                                    <Format>0;(0)</Format>
+                                    <Format>#,0;(#,0)</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -722,10 +718,10 @@ FROM (
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=IIF(IsNothing(Fields!ID2_7_1_1.Value) = TRUE, "-", Fields!ID2_7_1_1.Value)</Value>
+                                  <Value>=IIF(IsNothing(Fields!Score1.Value) = TRUE, "-", Fields!ID2_7_1_1.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
-                                    <Format>0;(0)</Format>
+                                    <Format>#,0;(#,0)</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -766,7 +762,7 @@ FROM (
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=IIF(IsNothing(Fields!AllContainer2.Value) = TRUE, "-", Cstr(Fields!Score2.Value)+" %")</Value>
+                                  <Value>=IIF(IsNothing(Fields!Score2.Value) = TRUE, "-", Cstr(Fields!Score2.Value)+" %")</Value>
                                   <Style>
                                     <FontStyle>Italic</FontStyle>
                                     <FontFamily>Tahoma</FontFamily>
@@ -806,9 +802,10 @@ FROM (
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=IIF(IsNothing(Fields!AllContainer2.Value) = TRUE, "-", Fields!AllContainer2.Value)</Value>
+                                  <Value>=IIF(IsNothing(Fields!Score2.Value) = TRUE, "-", Fields!AllContainer_2.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
+                                    <Format>#,0;(#,0)</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -845,10 +842,10 @@ FROM (
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=IIF(IsNothing(Fields!ID2_7_1_2.Value) = TRUE, "-", Fields!ID2_7_1_2.Value)</Value>
+                                  <Value>=IIF(IsNothing(Fields!Score2.Value) = TRUE, "-", Fields!ID2_7_1_2.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
-                                    <Format>0;(0)</Format>
+                                    <Format>#,0;(#,0)</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -867,6 +864,11 @@ FROM (
                               <Style>Solid</Style>
                               <Width>1pt</Width>
                             </BottomBorder>
+                            <RightBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>0.5pt</Width>
+                            </RightBorder>
                             <PaddingLeft>2pt</PaddingLeft>
                             <PaddingRight>2pt</PaddingRight>
                             <PaddingTop>2pt</PaddingTop>
@@ -897,7 +899,7 @@ FROM (
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -951,7 +953,7 @@ FROM (
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1007,7 +1009,7 @@ FROM (
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1058,7 +1060,7 @@ FROM (
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
                                       <FontWeight>Bold</FontWeight>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1114,7 +1116,7 @@ FROM (
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1170,7 +1172,7 @@ FROM (
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1230,7 +1232,7 @@ FROM (
                                       <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1281,7 +1283,7 @@ FROM (
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1331,7 +1333,7 @@ FROM (
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1386,7 +1388,7 @@ FROM (
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>11pt</FontSize>
                                   <FontWeight>Bold</FontWeight>
-                                  <Color>Gray</Color>
+                                  <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
                             </TextRuns>
@@ -1414,7 +1416,9 @@ FROM (
                             <Style>None</Style>
                           </LeftBorder>
                           <RightBorder>
-                            <Style>None</Style>
+                            <Color>#e5e5e5</Color>
+                            <Style>Solid</Style>
+                            <Width>0.5pt</Width>
                           </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
                           <VerticalAlign>Middle</VerticalAlign>
@@ -1443,7 +1447,7 @@ FROM (
                                       <FontStyle>Italic</FontStyle>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1496,7 +1500,7 @@ FROM (
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1549,7 +1553,7 @@ FROM (
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>
-                                      <Color>Gray</Color>
+                                      <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
@@ -1571,7 +1575,9 @@ FROM (
                                 <Style>None</Style>
                               </LeftBorder>
                               <RightBorder>
-                                <Style>None</Style>
+                                <Color>#e5e5e5</Color>
+                                <Style>Solid</Style>
+                                <Width>0.5pt</Width>
                               </RightBorder>
                               <BackgroundColor>White</BackgroundColor>
                               <VerticalAlign>Middle</VerticalAlign>

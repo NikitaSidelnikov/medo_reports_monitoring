@@ -143,12 +143,12 @@ FROM (
 							END
 						, 2)
 		,'Score1' = ROUND(
-						IIF(Format_Versions.AllContainer_1 > 0 ,100 * Format_Versions.[2.7.1_1]/Format_Versions.AllContainer_1 ,0)
+						IIF(Format_Versions.AllContainer_1 > 0 ,100 * Format_Versions.[2.7.1_1]/Format_Versions.AllContainer_1 ,NULL)
 					, 2)
 		,Format_Versions.AllContainer_1
 		,Format_Versions.[2.7.1_1]
 		,'Score2' = ROUND(
-						IIF(Format_Versions.AllContainer_2 > 0 ,100 * Format_Versions.[2.7.1_2]/Format_Versions.AllContainer_2 ,0)
+						IIF(Format_Versions.AllContainer_2 > 0 ,100 * Format_Versions.[2.7.1_2]/Format_Versions.AllContainer_2 ,NULL)
 					, 2)
 		,Format_Versions.AllContainer_2
 		,Format_Versions.[2.7.1_2]

@@ -43,7 +43,6 @@ CREATE TABLE #Tmp (
 					PackageId INT PRIMARY KEY
 					,LogId BIGINT
 					,ReceivedOn Datetime2 
-					--,Success BIT
 )
 
 INSERT INTO #Tmp
@@ -51,7 +50,6 @@ INSERT INTO #Tmp
 		ActualLog.PackageId
 		,ProcessedPackage.LogId
 		,ProcessedPackage.ReceivedOn
-		--,ProcessedPackage.Success
 	FROM(
 		SELECT -- ActualLog = последний лог по пакету
 			ValidationLog.Package			AS PackageId
@@ -71,6 +69,7 @@ INSERT INTO #Tmp
 			ON ValidationLog.Package = Package.Id
 		WHERE
 			Processed = 1
+			AND Success = 1
 			AND Incoming = 0 --только исходящие пакеты
 			AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
 			AND Package.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --окончание периода отчета
@@ -103,7 +102,9 @@ INNER JOIN Member
 	ON Member.Guid = ES_in_ED_TC.MemberGuid
 GROUP BY
 	PackageId
-	,ES_in_ED_TC.ReceivedOn</CommandText>
+	,ES_in_ED_TC.ReceivedOn
+
+</CommandText>
       </Query>
       <Fields>
         <Field Name="PackageId">
@@ -567,6 +568,11 @@ ORDER BY Name ASC</CommandText>
                             <BottomBorder>
                               <Style>Solid</Style>
                             </BottomBorder>
+                            <RightBorder>
+                              <Color>#e5e5e5</Color>
+                              <Style>Solid</Style>
+                              <Width>0.5pt</Width>
+                            </RightBorder>
                             <PaddingLeft>2pt</PaddingLeft>
                             <PaddingRight>2pt</PaddingRight>
                             <PaddingTop>2pt</PaddingTop>
@@ -859,6 +865,7 @@ ORDER BY Name ASC</CommandText>
                                 <Style>
                                   <FontStyle>Normal</FontStyle>
                                   <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>11pt</FontSize>
                                   <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
@@ -896,6 +903,7 @@ ORDER BY Name ASC</CommandText>
                           <PaddingBottom>2pt</PaddingBottom>
                         </Style>
                       </Textbox>
+                      <rd:Selected>true</rd:Selected>
                     </CellContents>
                   </TablixHeader>
                   <TablixMembers>
@@ -965,6 +973,7 @@ ORDER BY Name ASC</CommandText>
                                 <Value>Использование ЭП для подписания</Value>
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>11pt</FontSize>
                                   <Color>DimGray</Color>
                                 </Style>
                               </TextRun>
@@ -994,7 +1003,7 @@ ORDER BY Name ASC</CommandText>
                           </LeftBorder>
                           <RightBorder>
                             <Color>#e5e5e5</Color>
-                            <Style>None</Style>
+                            <Style>Solid</Style>
                             <Width>0.5pt</Width>
                           </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
@@ -1022,6 +1031,7 @@ ORDER BY Name ASC</CommandText>
                                     <Value>Документа</Value>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>11pt</FontSize>
                                       <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
@@ -1135,6 +1145,7 @@ ORDER BY Name ASC</CommandText>
                                     <Value>Контейнера</Value>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>11pt</FontSize>
                                       <Color>DimGray</Color>
                                     </Style>
                                   </TextRun>
@@ -1163,8 +1174,9 @@ ORDER BY Name ASC</CommandText>
                                 <Style>None</Style>
                               </LeftBorder>
                               <RightBorder>
-                                <Color>White</Color>
-                                <Style>None</Style>
+                                <Color>#e5e5e5</Color>
+                                <Style>Solid</Style>
+                                <Width>0.5pt</Width>
                               </RightBorder>
                               <BackgroundColor>White</BackgroundColor>
                               <VerticalAlign>Middle</VerticalAlign>
@@ -1218,6 +1230,11 @@ ORDER BY Name ASC</CommandText>
                                   <BottomBorder>
                                     <Style>Solid</Style>
                                   </BottomBorder>
+                                  <RightBorder>
+                                    <Color>#e5e5e5</Color>
+                                    <Style>Solid</Style>
+                                    <Width>0.5pt</Width>
+                                  </RightBorder>
                                   <BackgroundColor>WhiteSmoke</BackgroundColor>
                                   <VerticalAlign>Middle</VerticalAlign>
                                   <PaddingLeft>2pt</PaddingLeft>
