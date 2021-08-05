@@ -20,7 +20,6 @@ CREATE TABLE #tmp_Packages (
 							LogId BIGINT PRIMARY KEY
 							,PackageId INT
 							,ReceivedOn DATETIME2(7) NULL
-							,Period INT
 						)
 CREATE TABLE #ScoreReceipt (
 							MemberR CHAR(36)
@@ -45,18 +44,6 @@ INSERT INTO #tmp_Packages
 		ReportPacks.LogId
 		,ReportPacks.Id			AS PackageId
 		,ReportPacks.ReceivedOn
-		,CASE WHEN
-			(ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-			AND ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета			
-			)
-			THEN 1 --период отчета
-		WHEN 
-			(ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0') --начало периода сравнения
-			AND ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '23', '59', '59', '0') --конец периода сравнения
-			) 
-			THEN 2 --период сравнения
-		ELSE 0 --Пакеты, не входящие в периоды очтета или сравнения
-		END AS Period
 	FROM (
 		SELECT -- ActualDates = актуальные даты логов пакетов. Если логи по пакету менялись, то берем последний обработанный лог
 			Package AS Max_Package
@@ -121,7 +108,7 @@ INSERT INTO #ScoreReceipt
 				,AllRequestMessage.MessageType
 				,AllRequestMessage.RecipientGuid
 				,AllRequestMessage.PackageDelivaredOn
-				,Period
+				,AllRequestMessage.Period
 			FROM (
 				SELECT  --AllRequestMessage - Все документы/ТК, ожидающие квитанции (или просто входящие квитанции)
 					MessageUid
@@ -130,6 +117,18 @@ INSERT INTO #ScoreReceipt
 					,MessageType
 					,RecipientGuid
 					,PackageDelivaredOn
+					,CASE	WHEN (
+								PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+								AND DATEADD(DAY, 5, PackageDelivaredOn) <= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
+								)
+								THEN 1 --период отчета
+							WHEN (
+								PackageDelivaredOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0') --начало периода сравнения
+								AND PackageDelivaredOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '23', '59', '59', '0') --конец периода сравнения
+								) 
+								THEN 2 --период сравнения
+							ELSE 0 --Пакеты, не входящие в периоды очтета или сравнения
+							END AS Period
 					,MAX(PackageDelivaredOn) OVER (PARTITION BY  MessageUid
 													,SenderGuid
 													,RecipientGuid
@@ -141,8 +140,8 @@ INSERT INTO #ScoreReceipt
 			INNER JOIN #tmp_Packages
 				ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 			WHERE
-				#tmp_Packages.Period IN (1, 2) --ЭД попадают в период отчета или в период сравнения
-				AND AllRequestMessage.PackageDelivaredOn is not null
+				AllRequestMessage.PackageDelivaredOn is not null
+				AND AllRequestMessage.Period IN (1,2)
 				AND AllRequestMessage.MinPackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
 			GROUP BY 
 				AllRequestMessage.MessageUid
@@ -150,7 +149,7 @@ INSERT INTO #ScoreReceipt
 				,AllRequestMessage.MessageType
 				,AllRequestMessage.RecipientGuid
 				,AllRequestMessage.PackageDelivaredOn
-				,#tmp_Packages.Period
+				,AllRequestMessage.Period
 		) AS RequestMessage
 
 		LEFT OUTER JOIN (
@@ -192,26 +191,26 @@ INSERT INTO #ScoreReceipt
 			AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
 			AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
 
-		WHERE 
-			(CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-				END 
-			> 0 
-			AND CASE
-					WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
-					THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-					ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-					END
-				is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
-	
-			OR (CASE
-				WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
-				THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
-				ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
-				END
-			<= 0 )
+		--WHERE 
+		--	(CASE
+		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+		--		THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+		--		END 
+		--	> 0 
+		--	AND CASE
+		--			WHEN DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0 --если даты совпадают, то сравниваем по миллисекундам
+		--			THEN DATEDIFF(MILLISECOND, ResponseDelivaredOn, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+		--			ELSE DATEDIFF(DAY, CONVERT(DATE, ResponseDelivaredOn), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+		--			END
+		--		is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
+	    --
+		--	OR (CASE
+		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))) = 0  --если даты совпадают, то сравниваем по миллисекундам
+		--		THEN DATEDIFF(MILLISECOND, GETDATE(), DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn))
+		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, DATEADD(DAY, 3, RequestMessage.PackageDelivaredOn)))  --иначе сравниваем по дням
+		--		END
+		--	<= 0 )
 	) AS ScoreReceipt
 GROUP BY
 	MemberResponseMessagerR
@@ -257,7 +256,7 @@ INSERT INTO #ScoreNotifications
 				,AllRequestMessage.MessageType
 				,AllRequestMessage.RecipientGuid
 				,AllRequestMessage.PackageDelivaredOn
-				,#tmp_Packages.Period
+				,AllRequestMessage.Period
 			FROM (
 				SELECT  --AllRequestMessage - Все документы/ТК, ожидающие уведомления (или просто входящие уведомлния)
 					DocumentUid
@@ -266,6 +265,18 @@ INSERT INTO #ScoreNotifications
 					,RecipientGuid
 					,MessageType
 					,PackageDelivaredOn
+					,CASE	WHEN (
+								PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+								AND DATEADD(DAY, 5, PackageDelivaredOn) <= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
+								)
+								THEN 1 --период отчета
+							WHEN (
+								PackageDelivaredOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0') --начало периода сравнения
+								AND PackageDelivaredOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '23', '59', '59', '0') --конец периода сравнения
+								) 
+								THEN 2 --период сравнения
+							ELSE 0 --Пакеты, не входящие в периоды очтета или сравнения
+							END AS Period
 					,MAX(PackageDelivaredOn) OVER (PARTITION BY  DocumentUid
 																,SenderGuid
 																,RecipientGuid
@@ -277,16 +288,16 @@ INSERT INTO #ScoreNotifications
 			INNER JOIN #tmp_Packages
 				ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 			WHERE
-				#tmp_Packages.Period IN (1, 2) --ЭД попадают в период отчета или в период сравнения
-				AND AllRequestMessage.PackageDelivaredOn is not null
-				AND AllRequestMessage.PackageDelivaredOn = AllRequestMessage.MinPackageDelivaredOn
+				AllRequestMessage.PackageDelivaredOn is not null
+				AND AllRequestMessage.Period IN (1,2)
+				AND AllRequestMessage.MinPackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
 			GROUP BY
 				AllRequestMessage.DocumentUid 
 				,AllRequestMessage.SenderGuid
 				,AllRequestMessage.MessageType
 				,AllRequestMessage.RecipientGuid
 				,AllRequestMessage.PackageDelivaredOn
-				,#tmp_Packages.Period
+				,AllRequestMessage.Period
 		) AS RequestMessage
 		LEFT OUTER JOIN (
 			SELECT		--ResponseMessage - Все Уведомления, отправленные в ответ на документы/ТК, с номерами пакетов
