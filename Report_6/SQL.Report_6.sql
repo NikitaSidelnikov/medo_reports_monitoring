@@ -11,14 +11,12 @@ IF OBJECT_ID('tempdb..#Tmp') is not null
 CREATE TABLE #Tmp (
 					PackageId INT PRIMARY KEY
 					,LogId BIGINT 
-					--,Success BIT
 )
 
 INSERT INTO #Tmp
 	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
 		ActualLog.PackageId
 		,ProcessedPackage.LogId
-		--,ProcessedPackage.Success
 	FROM(
 		SELECT -- ActualLog = последний лог по пакету
 			ValidationLog.Package	AS PackageId
@@ -37,6 +35,7 @@ INSERT INTO #Tmp
 			ON ValidationLog.Package = Package.Id
 		WHERE
 			Processed = 1
+			AND Success = 1
 			AND Incoming = 0 --только исходящие пакеты
 			AND Package.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
 			AND Package.ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --окончание периода отчета
