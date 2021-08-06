@@ -1,0 +1,1410 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Report xmlns:rd="http://schemas.microsoft.com/SQLServer/reporting/reportdesigner" xmlns:cl="http://schemas.microsoft.com/sqlserver/reporting/2010/01/componentdefinition" xmlns="http://schemas.microsoft.com/sqlserver/reporting/2010/01/reportdefinition">
+  <AutoRefresh>0</AutoRefresh>
+  <DataSources>
+    <DataSource Name="DataSource1">
+      <ConnectionProperties>
+        <DataProvider>SQL</DataProvider>
+        <ConnectString>Data Source=(local);Initial Catalog=medomon</ConnectString>
+        <IntegratedSecurity>true</IntegratedSecurity>
+      </ConnectionProperties>
+      <rd:SecurityType>Integrated</rd:SecurityType>
+      <rd:DataSourceID>f898c071-9876-4786-8c4e-ce8582d7ac8c</rd:DataSourceID>
+    </DataSource>
+  </DataSources>
+  <DataSets>
+    <DataSet Name="DataSet1">
+      <Query>
+        <DataSourceName>DataSource1</DataSourceName>
+        <QueryParameters>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@Groups">
+            <Value>=Parameters!Group.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
+          </QueryParameter>
+        </QueryParameters>
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--SET @DateStart = '2021-01-01'
+--SET @DateEnd = '2021-06-01'
+-------------------------------------------------------------------
+
+IF object_id('tempdb..#tmp') is not null
+	DROP TABLE #tmp
+IF object_id('tempdb..#tmp2') is not null
+	DROP TABLE #tmp2
+IF OBJECT_ID('tempdb..#tmp_Packages') is not null
+	DROP TABLE #tmp_Packages
+
+CREATE TABLE #tmp_Packages (
+							LogId BIGINT PRIMARY KEY
+							,ContainerXmlVersion nvarchar(255)
+						)
+INSERT INTO #tmp_Packages  
+	SELECT -- ActualLogs = актуальные пакеты с последним логом
+		ReportPacks.LogId
+		,ReportPacks.ContainerXmlVersion
+	FROM (
+		SELECT -- ActualDates = актуальные даты логов пакетов. Если логи по пакету менялись, то берем последний обработанный лог
+			Package AS Max_Package
+			,MAX(ValidatedOn)	AS Max_ValidatedOn
+		FROM	
+			ValidationLog
+		WHERE 
+			Success = 1 --????
+		GROUP BY
+			Package
+	) AS ActualDates
+	INNER JOIN (
+		SELECT -- ReportPacks = все обработанные (processed = 1) пакеты
+			ValidationLog.Id	AS LogId
+			,ValidationLog.ContainerXmlVersion
+			,Package.Id
+			,Package.ValidatedOn
+		FROM
+			Package
+		INNER JOIN ValidationLog
+			ON ValidationLog.Package = Package.Id
+		WHERE
+			--Package.Incoming = 1 --только исходящие пакеты 
+			Package.Processed = 1 --только обработанные пакеты
+			AND Success = 1
+	) AS ReportPacks
+		ON ActualDates.Max_Package = ReportPacks.Id
+		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
+
+
+CREATE TABLE #tmp ( --оценка переписок с рангом
+	Rank INT
+	,SenderGuid char(36)
+	--,SenderName nvarchar(255)
+	,RecipientGuid char(36)
+	--,RecipientName nvarchar(255)
+	,CountNewVersionED INT
+	,CountActiveCommunications INT
+	,ALLCountNewVersionED INT
+)
+
+INSERT INTO #tmp  
+	SELECT 	--оценка переписок с рангом
+		DENSE_RANK() OVER (ORDER BY CountActiveCommunications DESC, ALLCountNewVersionED DESC, Member.Name ASC) AS Rank
+		,SenderGuid
+		--,SenderName
+		,RecipientGuid
+		--,RecipientName
+		,CountNewVersionED
+		,CountActiveCommunications
+		,ALLCountNewVersionED
+	FROM (
+		SELECT	--ComunicationsScore = оценка переписок
+			CommunicationsControl.SenderGuid
+			--,CommunicationsControl.SenderName
+			,CommunicationsControl.RecipientGuid
+			--,CommunicationsControl.RecipientName
+			,ISNULL(CommunicationsControl.CountNewVersionED, -1) AS CountNewVersionED --где переписки нет, там -1
+			,SUM(CommunicationsControl.CountNewVersionED) OVER (PARTITION BY CommunicationsControl.SenderGuid) AS ALLCountNewVersionED --сумма всех ЭД в формате 2.7.1 по участнику 
+			,SUM(IIF(CommunicationsControl.CountNewVersionED &gt; 2, 1, 0)) OVER (PARTITION BY CommunicationsControl.SenderGuid) AS CountActiveCommunications --если в переписке есть более 2 ЭД 2.7.1, то +1 к активной переписке
+		FROM ( --CommunicationsControl = коммуникации Sender и Recipient и кол-во версий 2.7.1 ЭД
+			SELECT
+				AllCommunications.SenderGuid
+				--,AllCommunications.SenderName
+				,AllCommunications.RecipientGuid
+				--,AllCommunications.RecipientName
+				,NewVersionControl.CountNewVersionED
+			FROM ( --AllCommunications = Все возможные варианты коммуникаций Sender и Recipient
+				SELECT 
+					Member1.Guid	AS SenderGuid
+					--,Member1.Name	AS SenderName
+					,Member2.Guid	AS RecipientGuid 
+					--,Member2.Name	AS RecipientName
+				FROM 
+					Member AS Member1
+				CROSS JOIN (
+					SELECT 
+						--Member.Name
+						Member.Guid
+					FROM 
+						Member
+					WHERE
+						Member.Active = 1
+						AND Member.Type IN (@Groups)
+				) AS Member2
+				WHERE 
+					Member1.Active = 1
+					AND Member1.Type IN (@Groups)
+			) AS AllCommunications
+			LEFT JOIN (
+				SELECT -- NewVersionControl = коммуникации MemberY и MemberX в период отчета по ЭД с указанием кол-ва версий 2.7.1 ЭД
+					VersionControl.MemberY
+					,VersionControl.MemberX
+					,SUM(IIF(VersionControl.VersionED = '2.7.1', 1, 0)) AS CountNewVersionED
+				FROM (
+					SELECT  -- VersionControl = Все коммуникации MemberY и MemberX в период отчета по ЭД с указанием версии ЭД
+						ConfirmationControl.SenderGuid AS MemberY		--отправитель
+						,ConfirmationControl.RecipientGuid AS MemberX	--получатель
+						,#tmp_Packages.ContainerXmlVersion AS VersionED
+					FROM	
+						ConfirmationControl	
+					INNER JOIN #tmp_Packages
+						ON #tmp_Packages.LogId = ConfirmationControl.ValidatingLog
+					WHERE 	
+						ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+						AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
+						--AND(ConfirmationControl.MessageType = N'Транспортный контейнер' OR ConfirmationControl.MessageType = N'Документ')
+				) AS VersionControl
+				GROUP BY
+					VersionControl.MemberY
+					,VersionControl.MemberX
+			) AS NewVersionControl
+				ON AllCommunications.SenderGuid = NewVersionControl.MemberY
+				AND AllCommunications.RecipientGuid = NewVersionControl.MemberX
+		) AS CommunicationsControl	
+	) AS ComunicationsScore
+	INNER JOIN Member
+		ON Member.Guid = ComunicationsScore.SenderGuid
+
+CREATE TABLE #tmp2 ( --чтобы сортировать столбец так же, как и строку
+	Rank INT
+	,SenderGuid nvarchar(255)
+) 
+
+INSERT INTO #tmp2  
+	SELECT 
+		DISTINCT
+		#tmp.Rank
+		,#tmp.SenderGuid
+	FROM #tmp
+
+
+SELECT 
+	A.Rank AS RankA
+	,A.SenderGuid
+	--,A.SenderName
+	,B.Rank AS RankB
+	,A.RecipientGuid
+	--,A.RecipientName
+	,A.CountNewVersionED
+	,A.CountActiveCommunications
+	,A.ALLCountNewVersionED	
+FROM #tmp AS A
+INNER JOIN #tmp2 AS B
+	ON A.RecipientGuid = B.SenderGuid
+</CommandText>
+        <rd:UseGenericDesigner>true</rd:UseGenericDesigner>
+      </Query>
+      <Fields>
+        <Field Name="RankA">
+          <DataField>RankA</DataField>
+          <rd:TypeName>System.Int32</rd:TypeName>
+        </Field>
+        <Field Name="SenderGuid">
+          <DataField>SenderGuid</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="RankB">
+          <DataField>RankB</DataField>
+          <rd:TypeName>System.Int32</rd:TypeName>
+        </Field>
+        <Field Name="RecipientGuid">
+          <DataField>RecipientGuid</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="CountNewVersionED">
+          <DataField>CountNewVersionED</DataField>
+          <rd:TypeName>System.Int32</rd:TypeName>
+        </Field>
+        <Field Name="CountActiveCommunications">
+          <DataField>CountActiveCommunications</DataField>
+          <rd:TypeName>System.Int32</rd:TypeName>
+        </Field>
+        <Field Name="ALLCountNewVersionED">
+          <DataField>ALLCountNewVersionED</DataField>
+          <rd:TypeName>System.Int32</rd:TypeName>
+        </Field>
+      </Fields>
+    </DataSet>
+    <DataSet Name="GetMaxCountED">
+      <Query>
+        <DataSourceName>DataSource1</DataSourceName>
+        <QueryParameters>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
+          </QueryParameter>
+        </QueryParameters>
+        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--SET @DateStart = '2021-01-01'
+--SET @DateEnd = '2021-06-01'
+-------------------------------------------------------------------
+
+IF OBJECT_ID('tempdb..#tmp_Packages') is not null
+	DROP TABLE #tmp_Packages
+
+CREATE TABLE #tmp_Packages (
+							LogId BIGINT PRIMARY KEY
+							,ContainerXmlVersion nvarchar(255)
+						)
+INSERT INTO #tmp_Packages  
+	SELECT -- ActualLogs = актуальные пакеты с последним логом
+		ReportPacks.LogId
+		,ReportPacks.ContainerXmlVersion
+	FROM (
+		SELECT -- ActualDates = актуальные даты логов пакетов. Если логи по пакету менялись, то берем последний обработанный лог
+			Package AS Max_Package
+			,MAX(ValidatedOn)	AS Max_ValidatedOn
+		FROM	
+			ValidationLog
+		WHERE 
+			Success = 1 --????
+		GROUP BY
+			Package
+	) AS ActualDates
+	INNER JOIN (
+		SELECT -- ReportPacks = все обработанные (processed = 1) пакеты
+			ValidationLog.Id	AS LogId
+			,ValidationLog.ContainerXmlVersion
+			,Package.Id
+			,Package.ValidatedOn
+		FROM
+			Package
+		INNER JOIN ValidationLog
+			ON ValidationLog.Package = Package.Id
+		WHERE
+			--Package.Incoming = 1 --только исходящие пакеты 
+			Package.Processed = 1 --только обработанные пакеты
+			AND Success = 1
+	) AS ReportPacks
+		ON ActualDates.Max_Package = ReportPacks.Id
+		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
+
+SELECT
+	MAX(SumVersionControl.CountNewVersionED) AS MaxCountED
+FROM (
+	SELECT -- SumVersionControl = Кол-во переданных ЭД в формате 2.7.1 по каждому участнику
+		VersionControl.MemberY
+		,SUM(IIF(VersionControl.VersionED = '2.7.1', 1, 0)) AS CountNewVersionED
+	FROM (
+		SELECT  --VersionControl = Переданные ЭД в формате 2.7.1
+			ConfirmationControl.SenderGuid AS MemberY		--отправитель
+			--,IIF(ConfirmationControl.MessageType = N'Транспортный контейнер', ValidationLog.ContainerXmlVersion, ValidationLog.PackageXmlVersion) AS VersionED
+			,#tmp_Packages.ContainerXmlVersion AS VersionED
+		FROM	
+			ConfirmationControl	
+		INNER JOIN #tmp_Packages
+			ON #tmp_Packages.LogId = ConfirmationControl.ValidatingLog
+		WHERE 	
+			ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
+			--AND(ConfirmationControl.MessageType = N'Транспортный контейнер' OR ConfirmationControl.MessageType = N'Документ')
+	) AS VersionControl
+	GROUP BY
+		VersionControl.MemberY
+) AS SumVersionControl
+</CommandText>
+      </Query>
+      <Fields>
+        <Field Name="MaxCountED">
+          <DataField>MaxCountED</DataField>
+          <rd:TypeName>System.Int32</rd:TypeName>
+        </Field>
+      </Fields>
+    </DataSet>
+    <DataSet Name="GetMembers">
+      <Query>
+        <DataSourceName>DataSource1</DataSourceName>
+        <CommandText>SELECT
+	Name
+	,Guid
+FROM Member
+WHERE Active = 1</CommandText>
+      </Query>
+      <Fields>
+        <Field Name="Name">
+          <DataField>Name</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="Guid">
+          <DataField>Guid</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+      </Fields>
+    </DataSet>
+    <DataSet Name="GetMembersType">
+      <Query>
+        <DataSourceName>DataSource1</DataSourceName>
+        <CommandText>SELECT
+	Distinct Type
+FROM Member </CommandText>
+      </Query>
+      <Fields>
+        <Field Name="Type">
+          <DataField>Type</DataField>
+          <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+      </Fields>
+    </DataSet>
+  </DataSets>
+  <ReportSections>
+    <ReportSection>
+      <Body>
+        <ReportItems>
+          <Textbox Name="ReportTitle">
+            <CanGrow>true</CanGrow>
+            <CanShrink>true</CanShrink>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>Кросс-таблица по использованию формата 2.7.1 при обмене ЭД</Value>
+                    <Style>
+                      <FontFamily>Yu Gothic UI Light</FontFamily>
+                      <FontSize>20pt</FontSize>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Left</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:WatermarkTextbox>Title</rd:WatermarkTextbox>
+            <rd:DefaultName>ReportTitle</rd:DefaultName>
+            <Top>0mm</Top>
+            <Height>9.99718mm</Height>
+            <Width>222.29992mm</Width>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <VerticalAlign>Top</VerticalAlign>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="DataEnd">
+            <CanGrow>true</CanGrow>
+            <CanShrink>true</CanShrink>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)), "dd MMMM yyyy")</Value>
+                    <Style>
+                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Left</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>DataEnd</rd:DefaultName>
+            <Top>11.76107mm</Top>
+            <Left>71.18878mm</Left>
+            <Height>6mm</Height>
+            <Width>31.56433mm</Width>
+            <ZIndex>1</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="Textbox61">
+            <CanGrow>true</CanGrow>
+            <CanShrink>true</CanShrink>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>по</Value>
+                    <Style />
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Right</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox60</rd:DefaultName>
+            <Top>11.76107mm</Top>
+            <Left>64.47025mm</Left>
+            <Height>6mm</Height>
+            <Width>6.71852mm</Width>
+            <ZIndex>2</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="DataStart">
+            <CanGrow>true</CanGrow>
+            <CanShrink>true</CanShrink>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
+                    <Style>
+                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Left</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>DataStart</rd:DefaultName>
+            <Top>11.76107mm</Top>
+            <Left>32.90592mm</Left>
+            <Height>6mm</Height>
+            <Width>31.56433mm</Width>
+            <ZIndex>3</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="Textbox60">
+            <CanGrow>true</CanGrow>
+            <CanShrink>true</CanShrink>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>с</Value>
+                    <Style />
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Right</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox60</rd:DefaultName>
+            <Top>11.76107mm</Top>
+            <Left>28.96875mm</Left>
+            <Height>6mm</Height>
+            <Width>3.93717mm</Width>
+            <ZIndex>4</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="Textbox63">
+            <CanGrow>true</CanGrow>
+            <CanShrink>true</CanShrink>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>Период отчета:</Value>
+                    <Style>
+                      <FontWeight>Bold</FontWeight>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style />
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox59</rd:DefaultName>
+            <Top>11.76107mm</Top>
+            <Left>0.00001mm</Left>
+            <Height>6mm</Height>
+            <Width>28.96874mm</Width>
+            <ZIndex>5</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Tablix Name="Tablix1">
+            <TablixCorner>
+              <TablixCornerRows>
+                <TablixCornerRow>
+                  <TablixCornerCell>
+                    <CellContents>
+                      <Textbox Name="Textbox20">
+                        <KeepTogether>true</KeepTogether>
+                        <Paragraphs>
+                          <Paragraph>
+                            <TextRuns>
+                              <TextRun>
+                                <Value xml:space="preserve"> </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value xml:space="preserve"> </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <TextDecoration>None</TextDecoration>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>Примечание по заполнению кросс-таблицы:
+</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <TextDecoration>Underline</TextDecoration>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>
+    По строкам -- участники в роли отправителя
+    По столбцам -- участники в роли получателя</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                            </TextRuns>
+                            <Style>
+                              <TextAlign>Center</TextAlign>
+                            </Style>
+                          </Paragraph>
+                          <Paragraph>
+                            <TextRuns>
+                              <TextRun>
+                                <Value xml:space="preserve">
+    </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>Зелёным</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>LawnGreen</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value xml:space="preserve"> </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>отмечены отправители, </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>готовые к работе в 2.7.1</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value> (направили более 2-х писем 3 или более адресатам)
+    </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>Жёлтым</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>#eded00</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value xml:space="preserve"> </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>отмечены отправители, </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>частично готовые к 2.7.1</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value> (направили более 2-х писем 1 или 2 адресатам)
+    </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>Красным</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>#ff0202</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value xml:space="preserve"> </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>отмечены отправители, </Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>не готовые к 2.7.1
+</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                              <TextRun>
+                                <Value>
+    В ячейках -- количество электронных документов, направленных отправителем  получателю в 2.7.1
+    Зелёным цветом ячеек отмечена активная переписка (если направлено более 2-х документов)</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <FontWeight>Normal</FontWeight>
+                                  <Color>Gray</Color>
+                                </Style>
+                              </TextRun>
+                            </TextRuns>
+                            <Style>
+                              <TextAlign>Center</TextAlign>
+                            </Style>
+                          </Paragraph>
+                        </Paragraphs>
+                        <rd:DefaultName>Textbox20</rd:DefaultName>
+                        <Style>
+                          <Border>
+                            <Color>LightGrey</Color>
+                            <Style>None</Style>
+                            <Width>1.25pt</Width>
+                          </Border>
+                          <BottomBorder>
+                            <Color>#4e648a</Color>
+                            <Style>Solid</Style>
+                          </BottomBorder>
+                          <RightBorder>
+                            <Style>Solid</Style>
+                          </RightBorder>
+                          <BackgroundColor>White</BackgroundColor>
+                          <VerticalAlign>Middle</VerticalAlign>
+                          <PaddingLeft>2pt</PaddingLeft>
+                          <PaddingRight>2pt</PaddingRight>
+                          <PaddingTop>2pt</PaddingTop>
+                          <PaddingBottom>2pt</PaddingBottom>
+                        </Style>
+                      </Textbox>
+                    </CellContents>
+                  </TablixCornerCell>
+                  <TablixCornerCell>
+                    <CellContents>
+                      <Textbox Name="Textbox6">
+                        <KeepTogether>true</KeepTogether>
+                        <Paragraphs>
+                          <Paragraph>
+                            <TextRuns>
+                              <TextRun>
+                                <Value>Итого адресатов с активной перепиской</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>9pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>DimGray</Color>
+                                </Style>
+                              </TextRun>
+                            </TextRuns>
+                            <Style>
+                              <TextAlign>Left</TextAlign>
+                            </Style>
+                          </Paragraph>
+                        </Paragraphs>
+                        <rd:DefaultName>Textbox1</rd:DefaultName>
+                        <Style>
+                          <Border>
+                            <Color>LightGrey</Color>
+                            <Style>None</Style>
+                            <Width>1.25pt</Width>
+                          </Border>
+                          <BottomBorder>
+                            <Style>Solid</Style>
+                          </BottomBorder>
+                          <RightBorder>
+                            <Style>Solid</Style>
+                            <Width>1pt</Width>
+                          </RightBorder>
+                          <BackgroundColor>White</BackgroundColor>
+                          <VerticalAlign>Middle</VerticalAlign>
+                          <PaddingLeft>2pt</PaddingLeft>
+                          <PaddingRight>2pt</PaddingRight>
+                          <PaddingTop>2pt</PaddingTop>
+                          <PaddingBottom>6pt</PaddingBottom>
+                          <WritingMode>Rotate270</WritingMode>
+                        </Style>
+                      </Textbox>
+                    </CellContents>
+                  </TablixCornerCell>
+                  <TablixCornerCell>
+                    <CellContents>
+                      <Textbox Name="Textbox4">
+                        <KeepTogether>true</KeepTogether>
+                        <Paragraphs>
+                          <Paragraph>
+                            <TextRuns>
+                              <TextRun>
+                                <Value>Итого отправлено ЭД в формате 2.7.1</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>9pt</FontSize>
+                                  <FontWeight>Bold</FontWeight>
+                                  <Color>DimGray</Color>
+                                </Style>
+                              </TextRun>
+                            </TextRuns>
+                            <Style>
+                              <TextAlign>Left</TextAlign>
+                            </Style>
+                          </Paragraph>
+                        </Paragraphs>
+                        <rd:DefaultName>Textbox2</rd:DefaultName>
+                        <Style>
+                          <Border>
+                            <Color>LightGrey</Color>
+                            <Style>None</Style>
+                            <Width>1.25pt</Width>
+                          </Border>
+                          <BottomBorder>
+                            <Style>Solid</Style>
+                          </BottomBorder>
+                          <RightBorder>
+                            <Style>Solid</Style>
+                          </RightBorder>
+                          <BackgroundColor>White</BackgroundColor>
+                          <VerticalAlign>Middle</VerticalAlign>
+                          <PaddingLeft>2pt</PaddingLeft>
+                          <PaddingRight>2pt</PaddingRight>
+                          <PaddingTop>2pt</PaddingTop>
+                          <PaddingBottom>6pt</PaddingBottom>
+                          <WritingMode>Rotate270</WritingMode>
+                        </Style>
+                      </Textbox>
+                    </CellContents>
+                  </TablixCornerCell>
+                </TablixCornerRow>
+              </TablixCornerRows>
+            </TablixCorner>
+            <TablixBody>
+              <TablixColumns>
+                <TablixColumn>
+                  <Width>0.67cm</Width>
+                </TablixColumn>
+              </TablixColumns>
+              <TablixRows>
+                <TablixRow>
+                  <Height>0.67cm</Height>
+                  <TablixCells>
+                    <TablixCell>
+                      <CellContents>
+                        <Textbox Name="Textbox65">
+                          <KeepTogether>true</KeepTogether>
+                          <Paragraphs>
+                            <Paragraph>
+                              <TextRuns>
+                                <TextRun>
+                                  <Value>=IIF(Fields!CountNewVersionED.Value = -1, " ", Fields!CountNewVersionED.Value)</Value>
+                                  <Style>
+                                    <FontFamily>Tahoma</FontFamily>
+                                    <FontSize>8pt</FontSize>
+                                    <Format>#,0</Format>
+                                    <Color>=SWITCH(Fields!SenderGuid.Value = Fields!RecipientGuid.Value AND Fields!CountNewVersionED.Value = 0, "#a6a6a6",Fields!SenderGuid.Value &lt;&gt; Fields!RecipientGuid.Value AND Fields!CountNewVersionED.Value = 0, "White", Fields!CountNewVersionED.Value &gt;0 AND Fields!CountNewVersionED.Value &lt; 3,"Black", Fields!CountNewVersionED.Value &gt;= 3, "DarkGreen")</Color>
+                                  </Style>
+                                </TextRun>
+                              </TextRuns>
+                              <Style>
+                                <TextAlign>Center</TextAlign>
+                              </Style>
+                            </Paragraph>
+                          </Paragraphs>
+                          <rd:DefaultName>Textbox58</rd:DefaultName>
+                          <Style>
+                            <Border>
+                              <Color>LightGrey</Color>
+                              <Style>None</Style>
+                            </Border>
+                            <BottomBorder>
+                              <Style>Dashed</Style>
+                              <Width>0.5pt</Width>
+                            </BottomBorder>
+                            <RightBorder>
+                              <Style>Dashed</Style>
+                              <Width>0.5pt</Width>
+                            </RightBorder>
+                            <BackgroundColor>=Switch( Fields!SenderGuid.Value = Fields!RecipientGuid.Value, "#a6a6a6", Fields!CountNewVersionED.Value  &gt; 2,"#"+Format(209-CInt(70*Fields!CountNewVersionED.Value/Variables!MaxCountED.Value), "X2")+""+Format(223-CInt(70*Fields!CountNewVersionED.Value/Variables!MaxCountED.Value), "X2")+""+Format(180-CInt(80*Fields!CountNewVersionED.Value/Variables!MaxCountED.Value), "X2"), Fields!SenderGuid.Value &lt;&gt; Fields!RecipientGuid.Value AND Fields!CountNewVersionED.Value  &lt;=2 , "White")</BackgroundColor>
+                            <VerticalAlign>Middle</VerticalAlign>
+                            <PaddingLeft>4pt</PaddingLeft>
+                            <PaddingRight>2pt</PaddingRight>
+                            <PaddingTop>2pt</PaddingTop>
+                            <PaddingBottom>2pt</PaddingBottom>
+                          </Style>
+                        </Textbox>
+                      </CellContents>
+                    </TablixCell>
+                  </TablixCells>
+                </TablixRow>
+              </TablixRows>
+            </TablixBody>
+            <TablixColumnHierarchy>
+              <TablixMembers>
+                <TablixMember>
+                  <Group Name="ColumnGroup">
+                    <GroupExpressions>
+                      <GroupExpression>=Fields!RecipientGuid.Value</GroupExpression>
+                    </GroupExpressions>
+                    <PageBreak>
+                      <BreakLocation>StartAndEnd</BreakLocation>
+                    </PageBreak>
+                  </Group>
+                  <SortExpressions>
+                    <SortExpression>
+                      <Value>=Fields!RankB.Value</Value>
+                    </SortExpression>
+                  </SortExpressions>
+                  <TablixMembers>
+                    <TablixMember>
+                      <TablixHeader>
+                        <Size>7cm</Size>
+                        <CellContents>
+                          <Textbox Name="Textbox62">
+                            <KeepTogether>true</KeepTogether>
+                            <Paragraphs>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>=Lookup(Fields!RecipientGuid.Value, Fields!Guid.Value, Fields!Name.Value, "GetMembers")</Value>
+                                    <Style>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>8pt</FontSize>
+                                      <Color>Gray</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style />
+                              </Paragraph>
+                            </Paragraphs>
+                            <rd:DefaultName>Textbox58</rd:DefaultName>
+                            <Style>
+                              <Border>
+                                <Color>LightGrey</Color>
+                                <Style>None</Style>
+                              </Border>
+                              <BottomBorder>
+                                <Style>Solid</Style>
+                                <Width>1.25pt</Width>
+                              </BottomBorder>
+                              <RightBorder>
+                                <Style>Solid</Style>
+                                <Width>0.5pt</Width>
+                              </RightBorder>
+                              <BackgroundColor>White</BackgroundColor>
+                              <VerticalAlign>Middle</VerticalAlign>
+                              <PaddingLeft>4pt</PaddingLeft>
+                              <PaddingRight>2pt</PaddingRight>
+                              <PaddingTop>2pt</PaddingTop>
+                              <PaddingBottom>2pt</PaddingBottom>
+                              <WritingMode>Rotate270</WritingMode>
+                            </Style>
+                          </Textbox>
+                        </CellContents>
+                      </TablixHeader>
+                    </TablixMember>
+                  </TablixMembers>
+                </TablixMember>
+              </TablixMembers>
+            </TablixColumnHierarchy>
+            <TablixRowHierarchy>
+              <TablixMembers>
+                <TablixMember>
+                  <Group Name="RowGroup">
+                    <GroupExpressions>
+                      <GroupExpression>=Fields!SenderGuid.Value</GroupExpression>
+                    </GroupExpressions>
+                  </Group>
+                  <SortExpressions>
+                    <SortExpression>
+                      <Value>=Fields!RankA.Value</Value>
+                    </SortExpression>
+                  </SortExpressions>
+                  <TablixHeader>
+                    <Size>7cm</Size>
+                    <CellContents>
+                      <Textbox Name="Textbox59">
+                        <KeepTogether>true</KeepTogether>
+                        <Paragraphs>
+                          <Paragraph>
+                            <TextRuns>
+                              <TextRun>
+                                <Value>=Lookup(Fields!SenderGuid.Value, Fields!Guid.Value, Fields!Name.Value, "GetMembers")</Value>
+                                <Style>
+                                  <FontFamily>Tahoma</FontFamily>
+                                  <FontSize>8pt</FontSize>
+                                  <Color>DimGray</Color>
+                                </Style>
+                              </TextRun>
+                            </TextRuns>
+                            <Style />
+                          </Paragraph>
+                        </Paragraphs>
+                        <rd:DefaultName>Textbox58</rd:DefaultName>
+                        <Style>
+                          <Border>
+                            <Color>LightGrey</Color>
+                            <Style>None</Style>
+                          </Border>
+                          <BottomBorder>
+                            <Color>#4e648a</Color>
+                            <Style>Solid</Style>
+                            <Width>0.75pt</Width>
+                          </BottomBorder>
+                          <RightBorder>
+                            <Style>Solid</Style>
+                          </RightBorder>
+                          <BackgroundColor>=Switch(Fields!CountActiveCommunications.Value &gt; 2, "#d7e4bd", Fields!CountActiveCommunications.Value &gt; 0 AND Fields!CountActiveCommunications.Value &lt;= 2, "#ffff99", Fields!CountActiveCommunications.Value = 0,"#fcd5b5")</BackgroundColor>
+                          <VerticalAlign>Middle</VerticalAlign>
+                          <PaddingLeft>4pt</PaddingLeft>
+                          <PaddingRight>2pt</PaddingRight>
+                          <PaddingTop>2pt</PaddingTop>
+                          <PaddingBottom>2pt</PaddingBottom>
+                        </Style>
+                      </Textbox>
+                    </CellContents>
+                  </TablixHeader>
+                  <TablixMembers>
+                    <TablixMember>
+                      <TablixHeader>
+                        <Size>0.8cm</Size>
+                        <CellContents>
+                          <Textbox Name="Textbox3">
+                            <KeepTogether>true</KeepTogether>
+                            <Paragraphs>
+                              <Paragraph>
+                                <TextRuns>
+                                  <TextRun>
+                                    <Value>=Fields!CountActiveCommunications.Value</Value>
+                                    <Style>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>9pt</FontSize>
+                                      <Format>#,0</Format>
+                                      <Color>Gray</Color>
+                                    </Style>
+                                  </TextRun>
+                                </TextRuns>
+                                <Style>
+                                  <TextAlign>Center</TextAlign>
+                                </Style>
+                              </Paragraph>
+                            </Paragraphs>
+                            <rd:DefaultName>Textbox3</rd:DefaultName>
+                            <Style>
+                              <Border>
+                                <Color>LightGrey</Color>
+                                <Style>None</Style>
+                              </Border>
+                              <BottomBorder>
+                                <Style>Solid</Style>
+                              </BottomBorder>
+                              <RightBorder>
+                                <Style>Solid</Style>
+                              </RightBorder>
+                              <BackgroundColor>White</BackgroundColor>
+                              <VerticalAlign>Middle</VerticalAlign>
+                              <PaddingLeft>4pt</PaddingLeft>
+                              <PaddingRight>2pt</PaddingRight>
+                              <PaddingTop>2pt</PaddingTop>
+                              <PaddingBottom>2pt</PaddingBottom>
+                            </Style>
+                          </Textbox>
+                        </CellContents>
+                      </TablixHeader>
+                      <TablixMembers>
+                        <TablixMember>
+                          <TablixHeader>
+                            <Size>0.8cm</Size>
+                            <CellContents>
+                              <Textbox Name="Textbox5">
+                                <KeepTogether>true</KeepTogether>
+                                <Paragraphs>
+                                  <Paragraph>
+                                    <TextRuns>
+                                      <TextRun>
+                                        <Value>=Fields!ALLCountNewVersionED.Value</Value>
+                                        <Style>
+                                          <FontFamily>Tahoma</FontFamily>
+                                          <FontSize>9pt</FontSize>
+                                          <Format>#,0</Format>
+                                          <Color>Gray</Color>
+                                        </Style>
+                                      </TextRun>
+                                    </TextRuns>
+                                    <Style>
+                                      <TextAlign>Center</TextAlign>
+                                    </Style>
+                                  </Paragraph>
+                                </Paragraphs>
+                                <rd:DefaultName>Textbox5</rd:DefaultName>
+                                <Style>
+                                  <Border>
+                                    <Color>LightGrey</Color>
+                                    <Style>None</Style>
+                                  </Border>
+                                  <BottomBorder>
+                                    <Style>Solid</Style>
+                                  </BottomBorder>
+                                  <RightBorder>
+                                    <Style>Solid</Style>
+                                    <Width>1.25pt</Width>
+                                  </RightBorder>
+                                  <BackgroundColor>White</BackgroundColor>
+                                  <VerticalAlign>Middle</VerticalAlign>
+                                  <PaddingLeft>4pt</PaddingLeft>
+                                  <PaddingRight>2pt</PaddingRight>
+                                  <PaddingTop>2pt</PaddingTop>
+                                  <PaddingBottom>2pt</PaddingBottom>
+                                </Style>
+                              </Textbox>
+                            </CellContents>
+                          </TablixHeader>
+                        </TablixMember>
+                      </TablixMembers>
+                    </TablixMember>
+                  </TablixMembers>
+                </TablixMember>
+              </TablixMembers>
+            </TablixRowHierarchy>
+            <RepeatColumnHeaders>true</RepeatColumnHeaders>
+            <RepeatRowHeaders>true</RepeatRowHeaders>
+            <FixedColumnHeaders>true</FixedColumnHeaders>
+            <FixedRowHeaders>true</FixedRowHeaders>
+            <DataSetName>DataSet1</DataSetName>
+            <Top>2.44666cm</Top>
+            <Height>7.67cm</Height>
+            <Width>9.27cm</Width>
+            <ZIndex>6</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+            </Style>
+          </Tablix>
+          <Textbox Name="Textbox66">
+            <CanGrow>true</CanGrow>
+            <CanShrink>true</CanShrink>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>=join(Parameters!Group.Value,", ")</Value>
+                    <Style />
+                  </TextRun>
+                </TextRuns>
+                <Style>
+                  <TextAlign>Left</TextAlign>
+                </Style>
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox60</rd:DefaultName>
+            <Top>17.76107mm</Top>
+            <Left>28.96874mm</Left>
+            <Height>6mm</Height>
+            <Width>73.78437mm</Width>
+            <ZIndex>7</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+          <Textbox Name="Textbox67">
+            <CanGrow>true</CanGrow>
+            <CanShrink>true</CanShrink>
+            <KeepTogether>true</KeepTogether>
+            <Paragraphs>
+              <Paragraph>
+                <TextRuns>
+                  <TextRun>
+                    <Value>Тип участника:</Value>
+                    <Style>
+                      <FontWeight>Bold</FontWeight>
+                    </Style>
+                  </TextRun>
+                </TextRuns>
+                <Style />
+              </Paragraph>
+            </Paragraphs>
+            <rd:DefaultName>Textbox59</rd:DefaultName>
+            <Top>17.76107mm</Top>
+            <Left>0mm</Left>
+            <Height>6mm</Height>
+            <Width>28.96874mm</Width>
+            <ZIndex>8</ZIndex>
+            <Style>
+              <Border>
+                <Style>None</Style>
+              </Border>
+              <PaddingLeft>2pt</PaddingLeft>
+              <PaddingRight>2pt</PaddingRight>
+              <PaddingTop>2pt</PaddingTop>
+              <PaddingBottom>2pt</PaddingBottom>
+            </Style>
+          </Textbox>
+        </ReportItems>
+        <Height>106.38494mm</Height>
+        <Style>
+          <Border>
+            <Style>None</Style>
+          </Border>
+        </Style>
+      </Body>
+      <Width>222.29993mm</Width>
+      <Page>
+        <PageFooter>
+          <Height>7.05556mm</Height>
+          <PrintOnFirstPage>true</PrintOnFirstPage>
+          <PrintOnLastPage>true</PrintOnLastPage>
+          <ReportItems>
+            <Textbox Name="ExecutionTime">
+              <CanGrow>true</CanGrow>
+              <CanShrink>true</CanShrink>
+              <KeepTogether>true</KeepTogether>
+              <Paragraphs>
+                <Paragraph>
+                  <TextRuns>
+                    <TextRun>
+                      <Value>=Globals!ExecutionTime</Value>
+                      <Style>
+                        <FontFamily>Yu Gothic UI</FontFamily>
+                      </Style>
+                    </TextRun>
+                  </TextRuns>
+                  <Style>
+                    <TextAlign>Left</TextAlign>
+                  </Style>
+                </Paragraph>
+              </Paragraphs>
+              <rd:DefaultName>ExecutionTime</rd:DefaultName>
+              <Top>0.70556mm</Top>
+              <Left>27.40876mm</Left>
+              <Height>6.35mm</Height>
+              <Width>36.07153mm</Width>
+              <Style>
+                <Border>
+                  <Style>None</Style>
+                </Border>
+                <PaddingLeft>2pt</PaddingLeft>
+                <PaddingRight>2pt</PaddingRight>
+                <PaddingTop>2pt</PaddingTop>
+                <PaddingBottom>2pt</PaddingBottom>
+              </Style>
+            </Textbox>
+            <Textbox Name="ExecutionTime2">
+              <CanGrow>true</CanGrow>
+              <CanShrink>true</CanShrink>
+              <KeepTogether>true</KeepTogether>
+              <Paragraphs>
+                <Paragraph>
+                  <TextRuns>
+                    <TextRun>
+                      <Value>Отчет создан в:</Value>
+                      <Style>
+                        <FontFamily>Yu Gothic UI</FontFamily>
+                      </Style>
+                    </TextRun>
+                  </TextRuns>
+                  <Style>
+                    <TextAlign>Right</TextAlign>
+                  </Style>
+                </Paragraph>
+              </Paragraphs>
+              <rd:DefaultName>ExecutionTime</rd:DefaultName>
+              <Top>0.70556mm</Top>
+              <Left>0.00001mm</Left>
+              <Height>6.35mm</Height>
+              <Width>27.40875mm</Width>
+              <ZIndex>1</ZIndex>
+              <Style>
+                <Border>
+                  <Style>None</Style>
+                </Border>
+                <PaddingLeft>2pt</PaddingLeft>
+                <PaddingTop>2pt</PaddingTop>
+                <PaddingBottom>2pt</PaddingBottom>
+              </Style>
+            </Textbox>
+          </ReportItems>
+          <Style>
+            <Border>
+              <Style>None</Style>
+            </Border>
+          </Style>
+        </PageFooter>
+        <PageHeight>29.7cm</PageHeight>
+        <PageWidth>21cm</PageWidth>
+        <InteractiveHeight>0cm</InteractiveHeight>
+        <InteractiveWidth>21cm</InteractiveWidth>
+        <LeftMargin>2cm</LeftMargin>
+        <RightMargin>2cm</RightMargin>
+        <TopMargin>2cm</TopMargin>
+        <BottomMargin>2cm</BottomMargin>
+        <ColumnSpacing>0.13cm</ColumnSpacing>
+        <Style />
+      </Page>
+    </ReportSection>
+  </ReportSections>
+  <ReportParameters>
+    <ReportParameter Name="DateStart">
+      <DataType>DateTime</DataType>
+      <DefaultValue>
+        <Values>
+          <Value>=DateSerial(Year(TODAY), Month(TODAY),"1")</Value>
+        </Values>
+      </DefaultValue>
+      <Prompt>Дата начала</Prompt>
+    </ReportParameter>
+    <ReportParameter Name="DateEnd">
+      <DataType>DateTime</DataType>
+      <DefaultValue>
+        <Values>
+          <Value>=DateSerial(Year(Now()), Month(Now()), Day(Now()))</Value>
+        </Values>
+      </DefaultValue>
+      <Prompt>Дата окончания</Prompt>
+    </ReportParameter>
+    <ReportParameter Name="Groups">
+      <DataType>String</DataType>
+      <Prompt>Тип участника</Prompt>
+      <ValidValues>
+        <DataSetReference>
+          <DataSetName>GetMembersType</DataSetName>
+          <ValueField>Type</ValueField>
+          <LabelField>Type</LabelField>
+        </DataSetReference>
+      </ValidValues>
+      <MultiValue>true</MultiValue>
+    </ReportParameter>
+  </ReportParameters>
+  <Variables>
+    <Variable Name="MaxCountED">
+      <Value>=MAX(Fields!MaxCountED.Value, "GetMaxCountED")</Value>
+    </Variable>
+  </Variables>
+  <rd:ReportUnitType>Cm</rd:ReportUnitType>
+  <rd:ReportID>21b49ffa-40d0-41df-b8a2-4c5852e84d34</rd:ReportID>
+</Report>
