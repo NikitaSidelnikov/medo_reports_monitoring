@@ -87,8 +87,6 @@ FROM(
 		WHERE
 			Processed = 1
 			AND Success = 1
-			AND Package.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-			AND Package.ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
 	) AS ProcessedPackage
 		ON ProcessedPackage.Package = ActualLog.PackageId
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
@@ -97,6 +95,9 @@ INNER JOIN ConfirmationControl
 	ON ConfirmationControl.ValidatingLog = ActualPackagesWithType.LogId
 WHERE
 	ConfirmationControl.RecipientGuid = @Recipient
+	AND ConfirmationControl.PackageDelivaredOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+	AND ConfirmationControl.PackageDelivaredOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
+						
 
 SELECT
 	DENSE_RANK() OVER(PARTITION BY MemberType ORDER BY Score DESC) AS Rank	
