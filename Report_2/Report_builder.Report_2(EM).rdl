@@ -864,7 +864,6 @@ FROM (
                             <PaddingBottom>2pt</PaddingBottom>
                           </Style>
                         </Textbox>
-                        <rd:Selected>true</rd:Selected>
                       </CellContents>
                     </TablixCell>
                   </TablixCells>
@@ -938,7 +937,7 @@ FROM (
                               <Paragraph>
                                 <TextRuns>
                                   <TextRun>
-                                    <Value>Место в рейтинге</Value>
+                                    <Value>Позиция</Value>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>

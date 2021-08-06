@@ -948,7 +948,7 @@ FROM (
                               <Paragraph>
                                 <TextRuns>
                                   <TextRun>
-                                    <Value>Место в рейтинге</Value>
+                                    <Value>Позиция</Value>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>11pt</FontSize>

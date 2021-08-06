@@ -6064,7 +6064,6 @@ WHERE
                           </Border>
                           <RightBorder>
                             <Color>#e5e5e5</Color>
-                            <Style>Solid</Style>
                             <Width>0.5pt</Width>
                           </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
@@ -6075,6 +6074,7 @@ WHERE
                           <PaddingBottom>2pt</PaddingBottom>
                         </Style>
                       </Textbox>
+                      <rd:Selected>true</rd:Selected>
                     </CellContents>
                   </TablixHeader>
                   <TablixMembers>

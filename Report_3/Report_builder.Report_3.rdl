@@ -693,7 +693,7 @@ FROM (
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=IIF((Fields!RequieredN.Value=0 AND Fields!RequieredR.Value = 0), "-", RunningValue(Round(100*(Fields!ResponsedR.Value/IIF(Fields!RequieredR.Value=0, 1, Fields!RequieredR.Value)+ Fields!ResponsedN.Value/IIF(Fields!RequieredN.Value = 0,1, Fields!RequieredN.Value))/2, 2), CountDistinct, Nothing))</Value>
+                                  <Value>=IIF((Fields!RequieredN.Value=0 AND Fields!RequieredR.Value = 0), "-", Fields!Rank.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontWeight>Bold</FontWeight>
