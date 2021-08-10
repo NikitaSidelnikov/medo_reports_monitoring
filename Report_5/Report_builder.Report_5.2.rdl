@@ -159,6 +159,7 @@ WHERE
         <CommandText>SELECT
 	Code
 	,Name
+	,ScoreValue
 FROM Criterion</CommandText>
       </Query>
       <Fields>
@@ -170,6 +171,10 @@ FROM Criterion</CommandText>
           <DataField>Name</DataField>
           <rd:TypeName>System.String</rd:TypeName>
         </Field>
+        <Field Name="ScoreValue">
+          <DataField>ScoreValue</DataField>
+          <rd:TypeName>System.Int32</rd:TypeName>
+        </Field>
       </Fields>
     </DataSet>
     <DataSet Name="GetCriterionGroupName">
@@ -177,6 +182,7 @@ FROM Criterion</CommandText>
         <DataSourceName>MedonomForm5</DataSourceName>
         <CommandText>SELECT
 	Id
+	,ScoreValue
 	,CASE	WHEN Id = 1
 				THEN N'Пакеты МЭДО (100)'
 			WHEN Id = 2
@@ -199,6 +205,10 @@ FROM CriterionGroup</CommandText>
         <Field Name="Name">
           <DataField>Name</DataField>
           <rd:TypeName>System.String</rd:TypeName>
+        </Field>
+        <Field Name="ScoreValue">
+          <DataField>ScoreValue</DataField>
+          <rd:TypeName>System.Int32</rd:TypeName>
         </Field>
       </Fields>
     </DataSet>
@@ -424,7 +434,7 @@ FROM CriterionGroup</CommandText>
                   <Width>21mm</Width>
                 </TablixColumn>
                 <TablixColumn>
-                  <Width>6.79666mm</Width>
+                  <Width>5.73833mm</Width>
                 </TablixColumn>
               </TablixColumns>
               <TablixRows>
@@ -702,7 +712,7 @@ FROM CriterionGroup</CommandText>
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=RunningValue(SUM(Fields!AvgValue.Value), CountDistinct, "MemberType")</Value>
+                                  <Value>=IIF(IsNothing(SUM(Fields!AvgValue.Value)) = FALSE, RunningValue(SUM(Fields!AvgValue.Value), CountDistinct, "MemberType"), "-")</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontWeight>Bold</FontWeight>
@@ -816,10 +826,11 @@ FROM CriterionGroup</CommandText>
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=Sum(Fields!AvgValue.Value)</Value>
+                                  <Value>=IIF(IsNothing(SUM(Fields!AvgValue.Value)) = FALSE, SUM(Fields!AvgValue.Value), "-")</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontWeight>Bold</FontWeight>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -866,8 +877,10 @@ FROM CriterionGroup</CommandText>
                                 <TextRun>
                                   <Value>=Max(Fields!MaxCountCriterion.Value)</Value>
                                   <Style>
+                                    <FontStyle>Italic</FontStyle>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontSize>9pt</FontSize>
+                                    <Format>#,0</Format>
                                     <Color>#4d4d4d</Color>
                                   </Style>
                                 </TextRun>
@@ -919,7 +932,8 @@ FROM CriterionGroup</CommandText>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontSize>9pt</FontSize>
-                                    <Color>#4d4d4d</Color>
+                                    <Format>#,0</Format>
+                                    <Color>=IIF(SUM(Fields!AvgValue.Value) = Lookup(Fields!CriterionGroup.Value, Fields!Id.Value, Fields!ScoreValue.Value, "GetCriterionGroupName"), "Green", "Black")</Color>
                                   </Style>
                                 </TextRun>
                               </TextRuns>
@@ -968,7 +982,8 @@ FROM CriterionGroup</CommandText>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <FontSize>8pt</FontSize>
-                                    <Color>#4d4d4d</Color>
+                                    <Format>#,0</Format>
+                                    <Color>=IIF(Fields!AvgValue.Value = Lookup(Fields!Criterion.Value, Fields!Code.Value, Fields!ScoreValue.Value, "GetCriterionName"), "Green", "Black")</Color>
                                   </Style>
                                 </TextRun>
                               </TextRuns>
@@ -1015,10 +1030,11 @@ FROM CriterionGroup</CommandText>
               <TablixMembers>
                 <TablixMember>
                   <TablixHeader>
-                    <Size>90.88667mm</Size>
+                    <Size>49.18833mm</Size>
                     <CellContents>
                       <Textbox Name="Textbox90">
                         <CanGrow>true</CanGrow>
+                        <CanShrink>true</CanShrink>
                         <KeepTogether>true</KeepTogether>
                         <Paragraphs>
                           <Paragraph>
@@ -1210,10 +1226,11 @@ FROM CriterionGroup</CommandText>
                 </TablixMember>
                 <TablixMember>
                   <TablixHeader>
-                    <Size>90.88667mm</Size>
+                    <Size>49.18833mm</Size>
                     <CellContents>
                       <Textbox Name="Textbox92">
                         <CanGrow>true</CanGrow>
+                        <CanShrink>true</CanShrink>
                         <KeepTogether>true</KeepTogether>
                         <Paragraphs>
                           <Paragraph>
@@ -1404,10 +1421,11 @@ FROM CriterionGroup</CommandText>
                 </TablixMember>
                 <TablixMember>
                   <TablixHeader>
-                    <Size>90.88667mm</Size>
+                    <Size>49.18833mm</Size>
                     <CellContents>
                       <Textbox Name="Textbox93">
                         <CanGrow>true</CanGrow>
+                        <CanShrink>true</CanShrink>
                         <KeepTogether>true</KeepTogether>
                         <Paragraphs>
                           <Paragraph>
@@ -1617,10 +1635,11 @@ FROM CriterionGroup</CommandText>
                   <TablixMembers>
                     <TablixMember>
                       <TablixHeader>
-                        <Size>90.88667mm</Size>
+                        <Size>49.18833mm</Size>
                         <CellContents>
                           <Textbox Name="Textbox94">
                             <CanGrow>true</CanGrow>
+                            <CanShrink>true</CanShrink>
                             <KeepTogether>true</KeepTogether>
                             <Paragraphs>
                               <Paragraph>
@@ -1797,6 +1816,7 @@ FROM CriterionGroup</CommandText>
                                               <TextRun>
                                                 <Value>Кол-во</Value>
                                                 <Style>
+                                                  <FontStyle>Italic</FontStyle>
                                                   <FontFamily>Tahoma</FontFamily>
                                                   <Color>DimGray</Color>
                                                 </Style>
@@ -1903,7 +1923,7 @@ FROM CriterionGroup</CommandText>
                         </SortExpression>
                       </SortExpressions>
                       <TablixHeader>
-                        <Size>109.10667mm</Size>
+                        <Size>67.40833mm</Size>
                         <CellContents>
                           <Textbox Name="Criterion">
                             <CanGrow>true</CanGrow>
@@ -1914,6 +1934,14 @@ FROM CriterionGroup</CommandText>
                                 <TextRuns>
                                   <TextRun>
                                     <Value>=Cstr(Fields!Criterion.Value) + " " + Lookup(Fields!Criterion.Value, Fields!Code.Value, Fields!Name.Value, "GetCriterionName")</Value>
+                                    <Style>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>9pt</FontSize>
+                                      <Color>DimGray</Color>
+                                    </Style>
+                                  </TextRun>
+                                  <TextRun>
+                                    <Value>=" (" + Cstr(Lookup(Fields!Criterion.Value, Fields!Code.Value, Fields!ScoreValue.Value, "GetCriterionName")) + ")"</Value>
                                     <Style>
                                       <FontFamily>Tahoma</FontFamily>
                                       <FontSize>9pt</FontSize>
@@ -1936,6 +1964,7 @@ FROM CriterionGroup</CommandText>
                                 <Width>1.25pt</Width>
                               </BottomBorder>
                               <LeftBorder>
+                                <Color>#e5e5e5</Color>
                                 <Style>Solid</Style>
                               </LeftBorder>
                               <RightBorder>
@@ -2000,6 +2029,9 @@ FROM CriterionGroup</CommandText>
                           <Value>=Sum(Fields!AvgValue.Value)</Value>
                           <Direction>Descending</Direction>
                         </SortExpression>
+                        <SortExpression>
+                          <Value>=Fields!Name.Value</Value>
+                        </SortExpression>
                       </SortExpressions>
                       <Visibility>
                         <Hidden>true</Hidden>
@@ -2011,12 +2043,14 @@ FROM CriterionGroup</CommandText>
               </TablixMembers>
             </TablixRowHierarchy>
             <RepeatColumnHeaders>true</RepeatColumnHeaders>
+            <RepeatRowHeaders>true</RepeatRowHeaders>
             <FixedColumnHeaders>true</FixedColumnHeaders>
+            <FixedRowHeaders>true</FixedRowHeaders>
             <DataSetName>DataSet1</DataSetName>
             <Top>18.9883mm</Top>
             <Left>0.00006mm</Left>
-            <Height>121.10667mm</Height>
-            <Width>141.10041mm</Width>
+            <Height>79.40833mm</Height>
+            <Width>140.04208mm</Width>
             <ZIndex>6</ZIndex>
             <Style>
               <Border>
@@ -2025,7 +2059,7 @@ FROM CriterionGroup</CommandText>
             </Style>
           </Tablix>
         </ReportItems>
-        <Height>140.09497mm</Height>
+        <Height>98.39663mm</Height>
         <Style>
           <Border>
             <Style>None</Style>
