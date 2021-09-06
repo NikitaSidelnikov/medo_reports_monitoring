@@ -21,7 +21,7 @@
             <Value>=Parameters!DateStart.Value</Value>
           </QueryParameter>
           <QueryParameter Name="@Groups">
-            <Value>=Parameters!Group.Value</Value>
+            <Value>=Parameters!Groups.Value</Value>
           </QueryParameter>
           <QueryParameter Name="@DateEnd">
             <Value>=Parameters!DateEnd.Value</Value>
@@ -1207,7 +1207,7 @@ FROM Member </CommandText>
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>=join(Parameters!Group.Value,", ")</Value>
+                    <Value>=join(Parameters!Groups.Value,", ")</Value>
                     <Style />
                   </TextRun>
                 </TextRuns>
