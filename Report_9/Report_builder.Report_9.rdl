@@ -496,7 +496,7 @@ ORDER BY PackageId
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=if(IsNothing(Fields!Value.Value)=FALSE, Fields!Value.Value, "-")</Value>
+                                  <Value>=IIF(IsNothing(Fields!Value.Value)=FALSE, Fields!Value.Value, "-")</Value>
                                   <Style>
                                     <Color>#4d4d4d</Color>
                                   </Style>
@@ -578,7 +578,7 @@ ORDER BY PackageId
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=if(IsNothing(Fields!Value.Value)=FALSE, Fields!Description.Value, "Критерий не был оценен")</Value>
+                                  <Value>=IIF(IsNothing(Fields!Value.Value)=FALSE, Fields!Description.Value, "Критерий не был оценен")</Value>
                                   <Style>
                                     <Color>#4d4d4d</Color>
                                   </Style>
@@ -1137,7 +1137,7 @@ ORDER BY PackageId
                     </Filters>
                     <Variables>
                       <Variable Name="FullScore">
-                        <Value>=Code.AddScore(If(IsNothing(Sum(Fields!Value.Value))=FALSE, Fields!MaxCriterionGroupValue.Value, 0))</Value>
+                        <Value>=Code.AddScore(IIF(IsNothing(Sum(Fields!Value.Value))=FALSE, Fields!MaxCriterionGroupValue.Value, 0))</Value>
                       </Variable>
                     </Variables>
                   </Group>

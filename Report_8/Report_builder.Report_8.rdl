@@ -177,13 +177,24 @@ ORDER BY Member.Name ASC</CommandText>
     <DataSet Name="GetCountPackages">
       <Query>
         <DataSourceName>DataSource1</DataSourceName>
+        <QueryParameters>
+          <QueryParameter Name="@Member">
+            <Value>=Parameters!Member.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@DateStart">
+            <Value>=Parameters!DateStart.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@DateEnd">
+            <Value>=Parameters!DateEnd.Value</Value>
+          </QueryParameter>
+        </QueryParameters>
         <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
-DECLARE @Member CHAR(36)
-DECLARE @DateStart DateTime2
-DECLARE @DateEnd DateTime2
-SET @Member = 'ecc99082-f3b4-4028-8007-a7f69d6cd1d7'
-SET @DateStart = '2021-04-01'
-SET @DateEnd = '2021-06-01'
+--DECLARE @Member CHAR(36)
+--DECLARE @DateStart DateTime2
+--DECLARE @DateEnd DateTime2
+--SET @Member = 'ecc99082-f3b4-4028-8007-a7f69d6cd1d7'
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-06-01'
 -------------------------------------------------------------------
 
 SELECT --Кол-во валидных и обработанных пакетов в период отчета по участнику
@@ -222,8 +233,7 @@ FROM (
 	) AS SuccesLogs
 		ON SuccesLogs.Package = SuccesDate.Package
 		AND SuccesLogs.ValidatedOn = SuccesDate.MaxValidatedOn
-) AS Pack_Count
-</CommandText>
+) AS Pack_Count</CommandText>
       </Query>
       <Fields>
         <Field Name="PackagesCount">
