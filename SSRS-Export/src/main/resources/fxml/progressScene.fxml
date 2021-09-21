@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.*?>
+
+<AnchorPane prefHeight="84.0" prefWidth="266.0" style="-fx-background-color: #f2f2f7;" xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1">
+   <children>
+      <ProgressBar fx:id="progressBar" layoutX="14.0" layoutY="14.0" prefWidth="200.0" progress="0.0" />
+      <Label fx:id="reportLabel" layoutX="14.0" layoutY="37.0" text="Label" textFill="#561eff">
+         <font>
+            <Font name="Tahoma" size="12.0" />
+         </font>
+      </Label>
+      <Button fx:id="btnCancel" cancelButton="true" layoutX="200.0" layoutY="50.0" mnemonicParsing="false" prefHeight="27.0" prefWidth="59.0" style="-fx-font-size: 13;" styleClass="button-background" stylesheets="@style.css" text="Cancel" />
+      <Label fx:id="countLabel" layoutX="225.0" layoutY="15.0" text="Label" textFill="#060021">
+         <font>
+            <Font name="Tahoma" size="12.0" />
+         </font>
+      </Label>
+      <Button fx:id="btnOpenFolder" layoutX="114.0" layoutY="50.0" mnemonicParsing="false" prefHeight="27.0" prefWidth="74.0" style="-fx-padding: 2; -fx-font-size: 11;" styleClass="button-transparent" stylesheets="@style.css" text="Open folder" visible="false" />
+   </children>
+</AnchorPane>

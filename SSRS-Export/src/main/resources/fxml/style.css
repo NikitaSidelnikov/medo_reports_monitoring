@@ -1,0 +1,272 @@
+/*  
+	Text-field
+*/
+.text-field {
+    -fx-font-size: 9pt;
+    -fx-font-family: "Rubik";
+	-fx-background-color: -fx-text-box-border, -fx-background ;
+	-fx-text-box-border: #e2e0e0;
+    -fx-background-insets: 0, 0 0 2 0 ;
+    -fx-background-radius: 0 ;
+	-fx-background: #f9f9f9;
+}
+
+.text-field:focused {
+    -fx-background-color: -fx-focus-color, -fx-background ;
+	-fx-background: #f9f9f9;
+}
+
+
+/*  
+	Check-box
+*/
+.check-box {
+	-fx-text-fill: #131313; 
+}
+
+.check-box .box {
+	-fx-background-color: white;
+	-fx-background-radius: 0;
+	-fx-border-color:#e2e0e0;
+	-fx-border-width: 2;
+	-fx-border-radius:0px; 
+}
+
+.check-box:selected .mark {
+	-fx-background-color: white;
+}
+
+.check-box:selected .box {
+	-fx-background-color: #b4b4dc;
+	-fx-border-color:#d0d0e9;
+}
+
+
+/*  
+	Choice-box && Combo-box
+*/
+.choice-box {
+    -fx-font-size: 9pt;
+    -fx-font-family: "Rubik";
+	-fx-mark-color: #e2e0e0;
+    -fx-background-radius: 0 ;
+	-fx-background-color: #f9f9f9;
+	-fx-border-width: 2;
+	-fx-border-color: #f9f9f9;
+}
+
+.choice-box:focused {
+	-fx-background-color: -fx-focus-color, -fx-background ;
+}
+
+.choice-box:hover {
+	-fx-border-color: #e2e0e0;
+}
+
+/* Selected item text color on the control itself */
+.choice-box > .label { 
+	-fx-text-fill: #000000;
+	-fx-font-size: 9pt;
+}
+
+/* Focused item background color in the list*/
+.choice-box .menu-item:focused { -fx-background-color: #e5e5ee; }
+
+/* Text color of non-focused items in the list*/
+.choice-box .menu-item > .label { 
+    -fx-font-size: 9pt;
+    -fx-font-family: "Rubik";
+	-fx-text-fill: #000000; 
+	}
+	
+/* Text color of focused item in the list*/
+.choice-box .menu-item:focused > .label { 
+	-fx-text-fill: #000000; 
+	-fx-font-size: 9pt;
+    -fx-font-family: "Rubik";
+}
+
+.choice-box .context-menu {
+	-fx-border-width: 1;
+	-fx-border-color:#e2e0e0;
+	-fx-background-color: #f9f9f9; 
+}
+
+
+/*  
+	Basic combo-box-base for Choice-box, Combo-box and Date-picker  
+*/
+.combo-box-base {
+    -fx-font-size: 9pt;
+    -fx-font-family: "Rubik";
+	-fx-mark-color: #e2e0e0;
+    -fx-background-radius: 0 ;
+	-fx-background-color: #ffffff;
+	-fx-border-width: 2;
+	-fx-border-color: #f0f0f0;
+}
+
+/*  Combo-box focused */
+.combo-box-base:focused {
+	-fx-background-color: -fx-focus-color, -fx-background ;
+}
+
+/*  Combo-box hover */
+.combo-box-base:hover {
+	-fx-border-color: #e7e7e7;
+}
+
+/*  Combo-box list-view */
+.combo-box-popup .list-view 
+{
+    -fx-background-color: #f9f9f9, #f9f9f9;
+    -fx-background-insets: 0, 1;
+}    
+
+/*  Combo-box row of list-view */
+.combo-box-popup .list-view .list-cell 
+{
+	-fx-font-size: 9pt;
+	-fx-text-fill: #434343; 
+	-fx-background-color: #f9f9f9; 
+}
+
+/*  Combo-box select row of list-view */
+.combo-box-popup .list-view .list-cell:filled:selected
+{
+	-fx-text-fill: #434343; 
+    -fx-background-color: #d2d2dc;
+}
+
+/*  Combo-box hover selected row of list */
+.combo-box-popup .list-view .list-cell:filled:selected:hover {
+	-fx-text-fill: #131313; 
+	-fx-background-color: #d2d2dc;
+}
+
+/*  Combo-box hover to row of list-view */
+.combo-box-popup .list-view .list-cell:filled:hover 
+{
+	-fx-text-fill: #434343; 
+	-fx-font-size: 9pt;
+    -fx-font-family: "Rubik";
+	-fx-background-color: #e5e5ee;
+}
+
+
+/*
+	Simple style button
+ */
+.simple-button {
+	-fx-border-color: #a2a2a2;
+    -fx-border-width: 0;
+	-fx-border-radius: 0;
+	-fx-background-color: transparent;
+	-fx-background-radius: 0 ;
+	-fx-font-family: 'Helvetica', Yu Gothic, sans-serif;
+    -fx-font-size: 7pt;
+    -fx-text-fill: #343434;
+}
+
+.simple-button:hover {
+	-fx-background-color: #e5e5ee;
+}
+
+.simple-button:pressed, .simple-button:default:hover:pressed {
+	-fx-text-fill: #131313;
+	-fx-background-color: #d2d2dc;
+}
+
+.simple-button:disabled, .simple-button:default:disabled {
+    -fx-opacity: 0.4;
+    -fx-background-color: #d4d4d4;
+    -fx-text-fill: #919191;
+}
+
+.simple-button:default {
+    -fx-background-color: -fx-focus-color;
+    -fx-text-fill: #ffffff;
+}
+
+.simple-button:default:hover {
+    -fx-background-color: derive(-fx-focus-color,30%);
+}
+
+/*
+	Style Button with transparent background
+ */
+.button-transparent {
+    -fx-padding: 4 18 4 18;
+    -fx-border-color: #b4b4dc;
+    -fx-border-width: 2;
+	-fx-border-radius: 3;
+	-fx-background-color: white;
+	-fx-font-family: 'Helvetica', Yu Gothic, sans-serif;
+    -fx-font-size: 10pt;
+    -fx-text-fill: #b4b4dc;
+    -fx-background-insets: 0 0 0 0, 0, 1, 2;
+}
+
+.button-transparent:hover {
+	-fx-background-color: #dcdcf0;
+}
+
+.button-transparent:pressed, .button-transparent:default:hover:pressed {
+	-fx-text-fill: white;
+	-fx-background-color: #b4b4dc;
+}
+
+.button-transparent:disabled, .button-transparent:default:disabled {
+    -fx-opacity: 0.4;
+    -fx-background-color: #1d1d1d;
+    -fx-text-fill: white;
+}
+
+.button-transparent:default {
+    -fx-background-color: -fx-focus-color;
+    -fx-text-fill: #ffffff;
+}
+
+.button-transparent:default:hover {
+    -fx-background-color: derive(-fx-focus-color,30%);
+}
+
+
+/*
+	Style Button with non-transparent background
+ */
+.button-background {
+    -fx-padding: 2 2 2 2;
+    -fx-border-color: #b4b4dc;
+    -fx-border-width: 2;
+	-fx-border-radius: 3;
+	-fx-background-color: #b4b4dc;
+	-fx-font-family: 'Helvetica', Yu Gothic, sans-serif;
+    -fx-font-size: 8pt;
+    -fx-text-fill: white;
+    -fx-background-insets: 0 0 0 0, 0, 1, 2;
+}
+
+.button-background:hover {
+	-fx-background-color: #bfbfe4;
+}
+
+.button-background:pressed, .button-background:default:hover:pressed {
+	-fx-text-fill: white;
+	-fx-background-color: #8e8eb4;
+}
+
+.button-background:disabled, .button-background:default:disabled {
+    -fx-opacity: 0.4;
+    -fx-background-color: #1d1d1d;
+    -fx-text-fill: #a5a5a5;
+}
+
+.button-background:default {
+    -fx-background-color: -fx-focus-color;
+    -fx-text-fill: #ffffff;
+}
+
+.button-background:default:hover {
+    -fx-background-color: derive(-fx-focus-color,30%);
+} 

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.*?>
+
+<Pane maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="250.0" prefWidth="350.0" style="-fx-background-color: #f2f2f7;" xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1">
+   <children>
+      <TextField fx:id="urlWebService" layoutX="115.0" layoutY="15.0" prefHeight="23.0" prefWidth="221.0" promptText="http://127.0.0.1/ReportServer" stylesheets="@style.css" />
+      <Label layoutX="10.0" layoutY="19.0" text="URL web-services:">
+         <font>
+            <Font name="Tahoma" size="12.0" />
+         </font></Label>
+      <TextField fx:id="pathToSaving" layoutX="78.0" layoutY="77.0" prefHeight="23.0" prefWidth="232.0" promptText="C:\Users" stylesheets="@style.css" />
+      <ChoiceBox fx:id="btnToSaving" layoutX="310.0" layoutY="78.0" maxHeight="22.0" maxWidth="25.0" minHeight="22.0" minWidth="22.0" prefHeight="22.0" prefWidth="25.0" stylesheets="@style.css" />
+      <Label layoutX="10.0" layoutY="79.0" text="Save path:">
+         <font>
+            <Font name="Tahoma" size="12.0" />
+         </font></Label>
+      <CheckBox fx:id="openingFile" layoutX="32.0" layoutY="105.0" mnemonicParsing="false" stylesheets="@style.css" text="Open the file after the export is completed">
+         <font>
+            <Font name="Tahoma" size="12.0" />
+         </font>
+      </CheckBox>
+      <ChoiceBox fx:id="choiceFormat" layoutX="78.0" layoutY="42.0" minHeight="-Infinity" prefHeight="27.0" prefWidth="79.0" stylesheets="@style.css" />
+      <Label layoutX="10.0" layoutY="49.0" text="Format:">
+         <font>
+            <Font name="Tahoma" size="12.0" />
+         </font>
+      </Label>
+      <Button fx:id="btnSave" layoutX="276.0" layoutY="216.0" mnemonicParsing="false" styleClass="button-transparent" stylesheets="@style.css" text="Save" />
+      <Button fx:id="btnCancel" layoutX="215.0" layoutY="216.0" mnemonicParsing="false" prefHeight="32.0" prefWidth="57.0" style="-fx-font-size: 12;" styleClass="button-background" stylesheets="@style.css" text="Cancel" />
+   </children>
+</Pane>

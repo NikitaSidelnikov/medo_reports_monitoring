@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.*?>
+<?import javafx.scene.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<AnchorPane fx:id="anchorPane" maxHeight="-Infinity" maxWidth="-Infinity" minHeight="300.0" minWidth="350.0" prefHeight="300.0" prefWidth="350.0" style="-fx-background-color: #f2f2f7;" xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1">
+   <children>
+      <Button fx:id="btn_export" accessibleRoleDescription="Export" layoutX="289.0" layoutY="267.0" mnemonicParsing="false" style="-fx-font-weight: bold;" styleClass="button-transparent" stylesheets="@style.css" text="Export" AnchorPane.bottomAnchor="2.0" AnchorPane.rightAnchor="2.0">
+         <cursor>
+            <Cursor fx:constant="DEFAULT" />
+         </cursor></Button>
+      <Button fx:id="btn_sett" layoutX="285.0" layoutY="2.0" mnemonicParsing="false" prefHeight="24.0" prefWidth="60.0" style="-fx-font-size: 11;" styleClass="button-background" stylesheets="@style.css" text="Settings" AnchorPane.rightAnchor="2.0" AnchorPane.topAnchor="2.0">
+         <cursor>
+            <Cursor fx:constant="HAND" />
+         </cursor></Button>
+      <TreeView fx:id="exportList" depthTest="DISABLE" layoutX="2.0" layoutY="33.0" prefHeight="202.0" prefWidth="282.0" AnchorPane.bottomAnchor="65.0" AnchorPane.leftAnchor="2.0" AnchorPane.rightAnchor="65.0" AnchorPane.topAnchor="33.0" />
+      <Button fx:id="btn_add" layoutX="2.0" layoutY="235.0" mnemonicParsing="false" prefHeight="25.0" prefWidth="53.0" style="-fx-font-weight: bold; -fx-font-size: 12;" styleClass="simple-button" stylesheets="@style.css" text="Add" AnchorPane.bottomAnchor="39.39999999999998" AnchorPane.leftAnchor="2.0">
+         <cursor>
+            <Cursor fx:constant="HAND" />
+         </cursor></Button>
+      <Button fx:id="btn_delete" layoutX="56.0" layoutY="235.0" mnemonicParsing="false" prefHeight="25.0" prefWidth="53.0" style="-fx-font-size: 12;" styleClass="simple-button" stylesheets="@style.css" text="Delete" AnchorPane.bottomAnchor="39.39999999999998" AnchorPane.leftAnchor="56.0" />
+      <Button fx:id="btn_paramsDefault" layoutX="285.0" layoutY="77.0" mnemonicParsing="false" prefHeight="22.0" prefWidth="64.0" style="-fx-padding: 0; -fx-font-size: 10;" styleClass="simple-button" stylesheets="@style.css" text="Set as default" textAlignment="CENTER" textOverrun="CLIP" wrapText="true" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="77.0">
+         <padding>
+            <Insets left="4.0" />
+         </padding></Button>
+      <Button fx:id="btn_show" layoutX="285.0" layoutY="33.0" mnemonicParsing="false" prefHeight="22.0" prefWidth="64.0" styleClass="simple-button" stylesheets="@style.css" text="Show all" textOverrun="CLIP" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="33.0">
+         <cursor>
+            <Cursor fx:constant="DEFAULT" />
+         </cursor>
+         <padding>
+            <Insets left="1.0" />
+         </padding>
+      </Button>
+      <Button fx:id="btn_hide" layoutX="285.0" layoutY="55.0" mnemonicParsing="false" prefHeight="22.0" prefWidth="64.0" styleClass="simple-button" stylesheets="@style.css" text="Hide all" textOverrun="CLIP" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="55.0">
+         <cursor>
+            <Cursor fx:constant="DEFAULT" />
+         </cursor>
+      </Button>
+   </children>
+</AnchorPane>

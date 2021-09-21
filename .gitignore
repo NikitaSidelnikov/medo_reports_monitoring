@@ -1,9 +1,16 @@
 *.txt
-*.xml
-*.xmls
 Alarm.sql
 *(old).rdl
 *(old).sql
 *(check).sql
 *(special).sql
 Powershell/
+*.zip
+*.xls
+*.jar
+*.exe
+target/
+
+# Default ignored files intellij idea
+*/shelf/
+SSRS-Export/.idea/workspace.xml
