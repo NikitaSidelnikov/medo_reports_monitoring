@@ -7,14 +7,10 @@
 
 IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
-
+	
 CREATE TABLE #Tmp (
-					--PackageId INT
-					--,LogId INT 
 					MemberGuid char(36)
-					,PackageXml nvarchar(255)
 					,PackageXmlVersion nvarchar(255)
-					,ContainerXml nvarchar(255)
 					,ContainerXmlVersion nvarchar(255)
 					,Type INT
 					--,Success BIT
@@ -31,19 +27,11 @@ INSERT INTO #Tmp
 		--ActualPackages.PackageId
 		--,ActualPackages.LogId
 		PackageType.MemberGuid			
-		,ActualPackages.PackageXml
+		--,ActualPackages.PackageXml
 		,PackageXmlVersion
-		,ActualPackages.ContainerXml
+		--,ActualPackages.ContainerXml
 		,ActualPackages.ContainerXmlVersion
-		,CASE 
-			WHEN PackageType.Type = 3 AND ActualPackages.ContainerXml is null
-				THEN 3				--Документ
-			WHEN PackageType.Type = 3 AND ActualPackages.ContainerXml is not null
-				THEN 4				--ТК
-			ELSE
-				PackageType.Type
-			END AS Type
-		--,ActualPackages.Success
+		,Type
 	FROM (
 		SELECT   --PackageType = определяем тип пакетов (не учитывая период отчета)
 			MemberGuid
@@ -54,8 +42,10 @@ INSERT INTO #Tmp
 				ValidationLog
 				,Score.MemberGuid
 				,CASE 
-					WHEN Criterion = '3.4'
-						THEN 3				--ТК/Документ
+					WHEN Criterion = '3.4' AND Value > 0
+						THEN 4				--ТК
+					WHEN Criterion = '3.4' AND Value = 0
+						THEN 3				--Документ
 					WHEN Criterion = '4.1'
 						THEN 2				--Уведомление
 					WHEN Criterion = '5.1'	
@@ -63,30 +53,26 @@ INSERT INTO #Tmp
 					END AS Type
 			FROM Score
 			WHERE
-				Criterion = '3.4'
-				OR Criterion = '4.1'
-				OR Criterion = '5.1'
+				Criterion IN ('3.4', '4.1', '5.1')
 		) AS CheckPackageType
 		GROUP BY
-			CheckPackageType.ValidationLog
-			,CheckPackageType.MemberGuid
+			CheckPackageType.MemberGuid
+			,CheckPackageType.ValidationLog
 	) AS PackageType
 
 	RIGHT JOIN (
 		SELECT --ActualPackages = обработанные исходящие пакеты в период отчета с последним логом
 			ActualLog.PackageId
-			--,ActualLog.Max_ValidatedOn
 			,ProcessedPackage.LogId
-			,ProcessedPackage.PackageXml
 			,ProcessedPackage.PackageXmlVersion
-			,ProcessedPackage.ContainerXml
 			,ProcessedPackage.ContainerXmlVersion
-			--,ProcessedPackage.Success
 		FROM(
 			SELECT -- ActualLog = последний лог по пакету
 				ValidationLog.Package			AS PackageId
 				,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
-			FROM ValidationLog		
+			FROM ValidationLog	
+			WHERE
+				Success = 1
 			GROUP BY
 				ValidationLog.Package
 		) AS ActualLog
@@ -95,11 +81,7 @@ INSERT INTO #Tmp
 				ValidationLog.Package
 				,ValidationLog.Id			AS LogId
 				,ValidationLog.ValidatedOn
-				--,ValidationLog.Success
-				--,Batch.MemberGuid
-				,ValidationLog.PackageXml
 				,ValidationLog.PackageXmlVersion
-				,ValidationLog.ContainerXml
 				,ValidationLog.ContainerXmlVersion
 			FROM Package
 			INNER JOIN ValidationLog
@@ -121,7 +103,7 @@ SELECT
 	,*
 FROM(
 	SELECT -- Join таблиц по ЭД и по ЭС
-		Member.Name			AS Member
+		Member.Name						AS Member
 		,'Score' = Round(IIF(ED.[AllContainer] <> 0 AND ED.[2.7.1] <> 0, 100*(0 + CAST(ISNULL(ED.[2.7.1],0) AS FLOAT)/CAST(ED.[AllContainer] AS FLOAT)), 0), 2)					
 		,ISNULL(EM.[AllMessage], 0)		AS AllMessage
 		,ISNULL(EM.[2.7.1], 0)			AS EM_2_7_1
@@ -178,7 +160,7 @@ FROM(
 				SELECT --Containers = Отбор ЭД и указание формата
 					#Tmp.MemberGuid AS MemberED
 					,CASE 
-						WHEN #Tmp.Type = 3 				--Документ
+						WHEN #Tmp.Type = 3 			--Документ
 							THEN 'NoContainer'
 						WHEN #Tmp.Type = 4 AND #Tmp.ContainerXmlVersion is null
 							THEN 'x'				--ТК

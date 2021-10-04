@@ -25,7 +25,9 @@ INSERT INTO #Tmp
 		SELECT -- ActualLog = последний лог по пакету
 			ValidationLog.Package			AS PackageId
 			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
-		FROM ValidationLog		
+		FROM ValidationLog	
+		WHERE
+			Success = 1
 		GROUP BY
 			ValidationLog.Package
 	) AS ActualLog

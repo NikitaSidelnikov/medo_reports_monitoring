@@ -26,6 +26,8 @@ INSERT INTO #Tmp
 			ValidationLog.Package			AS PackageId
 			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
 		FROM ValidationLog		
+		WHERE
+			Success = 1
 		GROUP BY
 			ValidationLog.Package
 	) AS ActualLog

@@ -1,27 +1,27 @@
 ---------------------------ПАРАМЕТРЫ-------------------------------
 --DECLARE @DateStart DateTime2
 --DECLARE @DateEnd DateTime2
---SET @DateStart = '2021-04-01'
+--SET @DateStart = '2001-04-01'
 --SET @DateEnd = '2021-06-01'
 -------------------------------------------------------------------
 
 IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
-
+	
 CREATE TABLE #Tmp (
-					PackageId INT PRIMARY KEY
-					,LogId BIGINT 
+					LogId BIGINT
 )
 
 INSERT INTO #Tmp
 	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
-		ActualLog.PackageId
-		,ProcessedPackage.LogId
+		ProcessedPackage.LogId
 	FROM(
 		SELECT -- ActualLog = последний лог по пакету
 			ValidationLog.Package	AS PackageId
 			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
-		FROM ValidationLog		
+		FROM ValidationLog	
+		WHERE 
+			Success = 1
 		GROUP BY
 			ValidationLog.Package
 	) AS ActualLog
@@ -95,8 +95,7 @@ FROM (
 			,SUM(CAST(ED_Relation AS FLOAT))/COUNT(*)					AS Prop_ED_Relation		--Доля ЭД с заполненным "Тип связи документа"
 		FROM (
 			SELECT --Перечень ЭД с признаком использования справочников (отформатированная таблица)
-				PackageId
-				,LogId
+				LogId
 				,MemberGuid
 				,MAX(ED_Type)		AS ED_Type
 				,MAX(ED_Signature)	AS ED_Signature
@@ -104,8 +103,7 @@ FROM (
 				,MAX(ED_Relation)	AS ED_Relation
 			FROM (
 				SELECT --Перечень ЭД с признаком использования справочников
-					#Tmp.PackageId
-					,#Tmp.LogId
+					#Tmp.LogId
 					,Score.MemberGuid
 					,IIF(Score.Value <> 0 and Score.Criterion = '3.6', 1, 0)	AS ED_Type		--Заполнен "Вид документа"
 					,IIF(Score.Value <> 0 and Score.Criterion = '3.7', 1, 0)	AS ED_Signature	--Заполнен "Гриф документа"
@@ -118,8 +116,7 @@ FROM (
 					Score.Criterion IN ('3.6', '3.7', '3.8', '3.11')
 			) AS ED_Directory
 			GROUP BY
-				PackageId
-				,LogId
+				LogId
 				,MemberGuid
 		) AS Using_Directory
 		RIGHT JOIN Member
