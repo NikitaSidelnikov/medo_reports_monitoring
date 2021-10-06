@@ -1,16 +1,14 @@
 ---------------------------ПАРАМЕТРЫ-------------------------------
 --DECLARE @DateStart DateTime2
 --DECLARE @DateEnd DateTime2
---SET @DateStart = '2001-04-01'
---SET @DateEnd = '2021-06-01'
+--SET @DateStart = '2021-03-01'
+--SET @DateEnd = '2021-04-01'
 -------------------------------------------------------------------
 
-IF OBJECT_ID('tempdb..#Tmp') is not null
-	DROP TABLE #Tmp
-	
-CREATE TABLE #Tmp (
-					LogId BIGINT
-)
+if object_id('tempdb..#Tmp') IS NOT NULL
+	drop table #Tmp
+
+CREATE TABLE #Tmp (LogId BIGINT NOT NULL)
 
 INSERT INTO #Tmp
 	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
@@ -28,7 +26,7 @@ INSERT INTO #Tmp
 	INNER JOIN (
 		SELECT --ProcessedPackage = обработанные пакеты в период отчета
 			ValidationLog.Package
-			,ValidationLog.Id AS LogId
+			,ValidationLog.Id			AS LogId
 			,ValidationLog.ValidatedOn
 		FROM Package
 		INNER JOIN ValidationLog
@@ -63,12 +61,12 @@ SELECT
 	,*
 FROM (
 	SELECT --Оценка использования справочников в документах		
-		MemberName
-		,MemberType
-		,ROUND(100 * ( 0.4 * CAST(Prop_ED_Type AS  FLOAT)
+		Member.Name
+		,Member.Type	AS MemberType
+		,ROUND(100 * ( 0.4 * CAST(Prop_ED_Type		AS  FLOAT)
 					 + 0.2 * CAST(Prop_ED_Signature AS  FLOAT)
-					 + 0.2 * CAST(Prop_ED_Region AS  FLOAT) 
-					 + 0.2 * CAST(Prop_ED_Relation AS  FLOAT)
+					 + 0.2 * CAST(Prop_ED_Region	AS  FLOAT) 
+					 + 0.2 * CAST(Prop_ED_Relation	AS  FLOAT)
 					 ) 
 				,2)	AS Score	--оценка участника
 		,Count_ED
@@ -82,8 +80,7 @@ FROM (
 		,ISNULL(ROUND(Prop_ED_Relation, 4), 0)		AS Prop_ED_Relation
 	FROM (
 		SELECT --Статистика по использованию справочников в ЭД
-			Member.Name													AS MemberName
-			,Member.Type												AS MemberType
+			MemberGuid
 			,IIF(Using_Directory.MemberGuid is not null, COUNT(*), 0)	AS Count_ED				--Всего документов
 			,SUM(ED_Type)												AS SUM_ED_Type			--Всего ЭД с заполненным "Вид документа"
 			,SUM(ED_Signature)											AS SUM_ED_Signature		--Всего ЭД с заполненным "Гриф документа"
@@ -95,7 +92,7 @@ FROM (
 			,SUM(CAST(ED_Relation AS FLOAT))/COUNT(*)					AS Prop_ED_Relation		--Доля ЭД с заполненным "Тип связи документа"
 		FROM (
 			SELECT --Перечень ЭД с признаком использования справочников (отформатированная таблица)
-				LogId
+				ValidationLog
 				,MemberGuid
 				,MAX(ED_Type)		AS ED_Type
 				,MAX(ED_Signature)	AS ED_Signature
@@ -103,7 +100,7 @@ FROM (
 				,MAX(ED_Relation)	AS ED_Relation
 			FROM (
 				SELECT --Перечень ЭД с признаком использования справочников
-					#Tmp.LogId
+					Score.ValidationLog
 					,Score.MemberGuid
 					,IIF(Score.Value <> 0 and Score.Criterion = '3.6', 1, 0)	AS ED_Type		--Заполнен "Вид документа"
 					,IIF(Score.Value <> 0 and Score.Criterion = '3.7', 1, 0)	AS ED_Signature	--Заполнен "Гриф документа"
@@ -116,16 +113,15 @@ FROM (
 					Score.Criterion IN ('3.6', '3.7', '3.8', '3.11')
 			) AS ED_Directory
 			GROUP BY
-				LogId
-				,MemberGuid
+				MemberGuid		
+				,ValidationLog
 		) AS Using_Directory
-		RIGHT JOIN Member
-			ON Member.Guid = Using_Directory.MemberGuid
-		WHERE
-			Member.Active = 1
 		GROUP BY 
-			Member.Name
-			,Member.Type
-			,Using_Directory.MemberGuid
+			MemberGuid
 	) AS Stats_Directory
+	RIGHT JOIN Member
+		ON Member.Guid = Stats_Directory.MemberGuid
+	WHERE
+		Member.Active = 1
 ) AS Score_Directory
+

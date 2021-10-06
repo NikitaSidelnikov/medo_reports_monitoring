@@ -40,9 +40,9 @@ IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
 
 CREATE TABLE #Tmp (
-					PackageId INT PRIMARY KEY
+					PackageId INT
 					,LogId BIGINT
-					,ReceivedOn Datetime2 
+					,ReceivedOn Datetime2(7)
 )
 
 INSERT INTO #Tmp
@@ -91,10 +91,9 @@ SELECT --Перечень ЭД с признаком использования 
 FROM (
 	SELECT --Перечень ЭС с признаком использования справочников
 		#Tmp.PackageId
-		,Score.MemberGuid
-		,IIF(Score.Value &lt;&gt; 0 and Score.Criterion = '3.6', 1, 0)	AS ED_Type		--Заполнен "Вид документа"
-		,IIF(Score.Value &lt;&gt; 0 and Score.Criterion = '3.7', 1, 0)	AS ED_Signature	--Заполнен "Гриф документа"
-		,IIF(Score.Value &lt;&gt; 0 and Score.Criterion = '3.8', 1, 0)	AS ED_Region	--Заполнен "Регион документа"
+		,IIF(Score.Value &lt;&gt; 0 and Score.Criterion = '3.6',  1, 0)	AS ED_Type		--Заполнен "Вид документа"
+		,IIF(Score.Value &lt;&gt; 0 and Score.Criterion = '3.7',  1, 0)	AS ED_Signature	--Заполнен "Гриф документа"
+		,IIF(Score.Value &lt;&gt; 0 and Score.Criterion = '3.8',  1, 0)	AS ED_Region	--Заполнен "Регион документа"
 		,IIF(Score.Value &lt;&gt; 0 and Score.Criterion = '3.11', 1, 0)	AS ED_Relation	--Заполнен "Тип связи документа"
 		,#Tmp.ReceivedOn
 	FROM #Tmp 
@@ -104,11 +103,11 @@ FROM (
 		Score.Criterion IN ('3.6', '3.7', '3.8', '3.11')
 		AND Score.MemberGuid = @Member
 ) AS Using_Directory
-INNER JOIN Member
-	ON Member.Guid = Using_Directory.MemberGuid
 GROUP BY
 	Using_Directory.PackageId
-	,Using_Directory.ReceivedOn</CommandText>
+	,Using_Directory.ReceivedOn
+
+</CommandText>
       </Query>
       <Fields>
         <Field Name="PackageId">

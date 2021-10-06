@@ -8,9 +8,7 @@
 IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
 
-CREATE TABLE #Tmp (
-	LogId BIGINT
-)
+CREATE TABLE #Tmp (LogId BIGINT NOT NULL)
 
 INSERT INTO #Tmp
 	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
@@ -44,59 +42,58 @@ INSERT INTO #Tmp
 		ON ProcessedPackage.Package = ActualLog.PackageId
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
 
-
 SELECT --Рейтинговая таблица по использованию ЭП в документах
 	DENSE_RANK() OVER	(
 							PARTITION BY 
-								Final_Rating.MemberType 
+								MemberType 
 							ORDER BY 
 								ROUND(100*(Prop_ES_in_ED + Prop_ES_in_TC)/2, 2) DESC
 						)								AS Rank		--позиция в рейтинге
-	,Final_Rating.MemberName
-	,Final_Rating.MemberType
-	,ROUND(100*(Prop_ES_in_ED + Prop_ES_in_TC)/2, 2)	AS Rating	--оценка участника
-	,Count_ED
-	,ISNULL(SUM_ES_in_ED, 0)							AS SUM_ES_in_ED
-	,ISNULL(SUM_ES_in_TC, 0)							AS SUM_ES_in_TC
-	,ISNULL(ROUND(Prop_ES_in_ED, 4), 0)					AS Prop_ES_in_ED
-	,ISNULL(ROUND(Prop_ES_in_TC, 4), 0)					AS Prop_ES_in_TC
-FROM (
-	SELECT --Статистика по использованию ЭП в ТК по каждому участнику
-		Member.Name											AS MemberName
+	,*
+FROM (	
+	SELECT --Рейтинговая таблица по использованию ЭП в документах
+		Member.Name
 		,Member.Type										AS MemberType
-		,IIF(Using_ES.MemberGuid is not null, COUNT(*), 0)	AS Count_ED			--Всего документов
-		,SUM(ES_in_ED)										AS SUM_ES_in_ED		--Всего ЭД с подписью
-		,SUM(ES_in_TC)										AS SUM_ES_in_TC		--Всего ТК с подписью
-		,SUM(CAST(ES_in_ED AS FLOAT))/COUNT(*)				AS Prop_ES_in_ED	--Доля ЭД с подписью
-		,SUM(CAST(ES_in_TC AS FLOAT))/COUNT(*)				AS Prop_ES_in_TC	--Доля ТК с подписью
+		,ROUND(100*(Prop_ES_in_ED + Prop_ES_in_TC)/2, 2)	AS Rating	--оценка участника
+		,Count_ED
+		,ISNULL(SUM_ES_in_ED, 0)							AS SUM_ES_in_ED
+		,ISNULL(SUM_ES_in_TC, 0)							AS SUM_ES_in_TC
+		,ISNULL(ROUND(Prop_ES_in_ED, 4), 0)					AS Prop_ES_in_ED
+		,ISNULL(ROUND(Prop_ES_in_TC, 4), 0)					AS Prop_ES_in_TC
 	FROM (
-		SELECT --Перечень ТК использующих/не использующих ЭП
-			LogId
-			,MemberGuid
-			,MAX(ES_in_ED) AS ES_in_ED
-			,MAX(ES_in_TC) AS ES_in_TC
+		SELECT --Статистика по использованию ЭП в ТК по каждому участнику
+			MemberGuid									
+			,IIF(MemberGuid is not null, COUNT(*), 0)			AS Count_ED			--Всего документов
+			,SUM(ES_in_ED)										AS SUM_ES_in_ED		--Всего ЭД с подписью
+			,SUM(ES_in_TC)										AS SUM_ES_in_TC		--Всего ТК с подписью
+			,SUM(CAST(ES_in_ED AS FLOAT))/COUNT(*)				AS Prop_ES_in_ED	--Доля ЭД с подписью
+			,SUM(CAST(ES_in_TC AS FLOAT))/COUNT(*)				AS Prop_ES_in_TC	--Доля ТК с подписью
 		FROM (
 			SELECT --Перечень ТК использующих/не использующих ЭП
-				#Tmp.LogId
-				,Score.MemberGuid
-				,IIF(Score.Value <> 0 and Score.Criterion = '3.13', 1, 0) AS ES_in_ED --Электронная подпись в ЭД
-				,IIF(Score.Value <> 0 and Score.Criterion = '3.14', 1, 0) AS ES_in_TC --Электронная подпись в ТК
-			FROM #Tmp 
-			INNER JOIN Score
-				ON Score.ValidationLog = #Tmp.LogId
-			WHERE 
-				Score.Criterion IN ('3.13', '3.14')
-		) AS ES_in_ED_TC
-		GROUP BY
+				MemberGuid
+				,MAX(ES_in_ED) AS ES_in_ED
+				,MAX(ES_in_TC) AS ES_in_TC
+			FROM (
+				SELECT --Перечень ТК использующих/не использующих ЭП
+					Score.ValidationLog
+					,Score.MemberGuid
+					,IIF(Score.Value <> 0 and Score.Criterion = '3.13', 1, 0) AS ES_in_ED --Электронная подпись в ЭД
+					,IIF(Score.Value <> 0 and Score.Criterion = '3.14', 1, 0) AS ES_in_TC --Электронная подпись в ТК
+				FROM #Tmp 
+				INNER JOIN Score
+					ON Score.ValidationLog = #Tmp.LogId
+				WHERE 
+					Score.Criterion IN ('3.13', '3.14')
+			) AS SIG_in_ED_TC
+			GROUP BY
+				ValidationLog	
+				,MemberGuid
+		) AS Using_SIG
+		GROUP BY 
 			MemberGuid
-			,LogId
-	) AS Using_ES
+	) AS Stats_SIG
 	RIGHT JOIN Member
-		ON Member.Guid = Using_ES.MemberGuid
+		ON Member.Guid = Stats_SIG.MemberGuid
 	WHERE
 		Member.Active = 1
-	GROUP BY 
-		Member.Name
-		,Member.Type
-		,Using_ES.MemberGuid
-) AS Final_Rating
+) AS Score_SIG

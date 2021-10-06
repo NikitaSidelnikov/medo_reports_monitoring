@@ -31,7 +31,7 @@
 --SET @DateStart = '2021-04-01'
 --SET @DateEnd = '2021-06-01'
 -------------------------------------------------------------------
- 
+
 IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
 	
@@ -60,31 +60,22 @@ INSERT INTO #Tmp
 		,ActualPackages.ContainerXmlVersion
 		,Type
 	FROM (
-		SELECT   --PackageType = определяем тип пакетов (не учитывая период отчета)
-			MemberGuid
-			,ValidationLog
-			,MAX(Type) AS Type
-		FROM (
-			SELECT --PackageType = определяем: какие критерии есть в оценке пакета. Исходя из них, сделаем вывод о типе
-				ValidationLog
-				,Score.MemberGuid
-				,CASE 
-					WHEN Criterion = '3.4' AND Value &gt; 0
-						THEN 4				--ТК
-					WHEN Criterion = '3.4' AND Value = 0
-						THEN 3				--Документ
-					WHEN Criterion = '4.1'
-						THEN 2				--Уведомление
-					WHEN Criterion = '5.1'	
-						THEN 1				--Квитанция
-					END AS Type
-			FROM Score
-			WHERE
-				Criterion IN ('3.4', '4.1', '5.1')
-		) AS CheckPackageType
-		GROUP BY
-			CheckPackageType.MemberGuid
-			,CheckPackageType.ValidationLog
+		SELECT --PackageType = определяем: какие критерии есть в оценке пакета. Исходя из них, сделаем вывод о типе
+			ValidationLog
+			,Score.MemberGuid
+			,CASE 
+				WHEN Criterion = '3.4' AND Value &gt; 0
+					THEN 4				--ТК
+				WHEN Criterion = '3.4' AND Value = 0
+					THEN 3				--Документ
+				WHEN Criterion = '4.1'
+					THEN 2				--Уведомление
+				WHEN Criterion = '5.1'	
+					THEN 1				--Квитанция
+				END AS Type
+		FROM Score
+		WHERE
+			Criterion IN ('3.4', '4.1', '5.1')
 	) AS PackageType
 
 	RIGHT JOIN (
@@ -212,7 +203,8 @@ FROM(
 		ON Member.Guid = ISNULL(EM.MemberEM, ED.MemberED) COLLATE SQL_Latin1_General_CP1_CI_AS
 	WHERE  
 		Member.Active = 1
-) AS Finaly_Table</CommandText>
+) AS Finaly_Table
+</CommandText>
       </Query>
       <Fields>
         <Field Name="Rank">

@@ -12,7 +12,7 @@ if object_id('tempdb..#tmp_ValidationLog') is not null
 	DROP TABLE #tmp_ValidationLog
 
 CREATE TABLE #tmp_ValidationLog (
-								LogId BIGINT
+								LogId BIGINT NOT NULL
 							) --Таблица всех валидных последних логов
 
 
@@ -48,8 +48,6 @@ INSERT INTO #tmp_ValidationLog
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
 
 
-
-
 SELECT  --AllCriterionGroupScore  --оценки выбранного лога пакета с учетом всех групп критериев
 	CriterionGroup.Object							AS CriterionGroupName
 	,CriterionGroup.Id								AS CriterionGroupId  
@@ -65,10 +63,8 @@ FROM (
 	FROM #tmp_ValidationLog
 	INNER JOIN Score
 		ON #tmp_ValidationLog.LogId = Score.ValidationLog
-	INNER JOIN Member
-		ON Member.Guid = Score.MemberGuid
 	WHERE 
-		Member.Guid = @Member
+		Score.MemberGuid = @Member
 	GROUP BY
 		Score.Criterion	
 ) AS ScoreLog
@@ -76,3 +72,4 @@ RIGHT JOIN Criterion
 	ON Criterion.Code = ScoreLog.Criterion
 INNER JOIN CriterionGroup
 	ON Criterion.CriterionGroup = CriterionGroup.Id
+

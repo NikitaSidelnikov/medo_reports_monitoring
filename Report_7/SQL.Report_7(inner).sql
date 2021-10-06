@@ -11,9 +11,9 @@ IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
 
 CREATE TABLE #Tmp (
-					PackageId INT PRIMARY KEY
+					PackageId INT
 					,LogId BIGINT
-					,ReceivedOn Datetime2 
+					,ReceivedOn Datetime2 (7)
 )
 
 INSERT INTO #Tmp
@@ -60,7 +60,6 @@ SELECT --Перечень ТК использующих/не использующих ЭП (отформатированная таблица)
 FROM (
 	SELECT --Перечень ТК использующих/не использующих ЭП
 		#Tmp.PackageId
-		,Score.MemberGuid
 		,IIF(Score.Value <> 0 and Score.Criterion = '3.13', 1, 0) AS ES_in_ED --Электронная подпись в ЭД
 		,IIF(Score.Value <> 0 and Score.Criterion = '3.14', 1, 0) AS ES_in_TC --Электронная подпись в ТК
 		,#Tmp.ReceivedOn
@@ -71,8 +70,6 @@ FROM (
 		Score.Criterion IN ('3.13', '3.14')
 		AND Score.MemberGuid = @Member
 ) AS ES_in_ED_TC
-INNER JOIN Member
-	ON Member.Guid = ES_in_ED_TC.MemberGuid
 GROUP BY
 	PackageId
 	,ES_in_ED_TC.ReceivedOn

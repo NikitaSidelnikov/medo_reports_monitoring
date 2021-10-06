@@ -38,31 +38,22 @@ INSERT INTO #Tmp
 		,PackageType.Type
 		,ActualPackages.Period
 	FROM (
-		SELECT   --PackageType = определяем тип пакетов (не учитывая период отчета)
-			MemberGuid
-			,ValidationLog
-			,MAX(Type) AS Type
-		FROM (
-			SELECT --PackageType = определяем: какие критерии есть в оценке пакета. Исходя из них, сделаем вывод о типе
-				ValidationLog
-				,Score.MemberGuid
-				,CASE 
-					WHEN Criterion = '3.4' AND Value > 0
-						THEN 4				--ТК
-					WHEN Criterion = '3.4' AND Value = 0
-						THEN 3				--Документ
-					WHEN Criterion = '4.1'
-						THEN 2				--Уведомление
-					WHEN Criterion = '5.1'	
-						THEN 1				--Квитанция
-					END AS Type
-			FROM Score
-			WHERE
-				Criterion IN ('3.4', '4.1', '5.1')
-		) AS CheckPackageType
-		GROUP BY
-			CheckPackageType.MemberGuid
-			,CheckPackageType.ValidationLog
+		SELECT --PackageType = определяем: какие критерии есть в оценке пакета. Исходя из них, сделаем вывод о типе
+			ValidationLog
+			,Score.MemberGuid
+			,CASE 
+				WHEN Criterion = '3.4' AND Value > 0
+					THEN 4				--ТК
+				WHEN Criterion = '3.4' AND Value = 0
+					THEN 3				--Документ
+				WHEN Criterion = '4.1'
+					THEN 2				--Уведомление
+				WHEN Criterion = '5.1'	
+					THEN 1				--Квитанция
+				END AS Type
+		FROM Score
+		WHERE
+			Criterion IN ('3.4', '4.1', '5.1')
 	) AS PackageType
 
 	RIGHT JOIN (
