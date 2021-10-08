@@ -10,6 +10,7 @@ Powershell/
 *.jar
 *.exe
 target/
+*(week)*.rdl
 
 # Default ignored files intellij idea
 */shelf/
