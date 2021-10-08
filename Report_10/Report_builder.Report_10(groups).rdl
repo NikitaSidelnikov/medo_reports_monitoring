@@ -13,7 +13,7 @@
     </DataSource>
   </DataSources>
   <DataSets>
-    <DataSet Name="DataSet1">
+    <DataSet Name="Report10">
       <Query>
         <DataSourceName>DataSource1</DataSourceName>
         <QueryParameters>
@@ -43,7 +43,7 @@ IF OBJECT_ID('tempdb..#tmp_Packages') is not null
 
 CREATE TABLE #tmp_Packages (
 							LogId BIGINT PRIMARY KEY
-							,ContainerXmlVersion nvarchar(255)
+							,ContainerXmlVersion char(8)
 						)
 INSERT INTO #tmp_Packages  
 	SELECT -- ActualLogs = актуальные пакеты с последним логом
@@ -64,8 +64,8 @@ INSERT INTO #tmp_Packages
 		SELECT -- ReportPacks = все обработанные (processed = 1) пакеты
 			ValidationLog.Id	AS LogId
 			,ValidationLog.ContainerXmlVersion
-			,Package.Id
-			,Package.ValidatedOn
+			,ValidationLog.Package
+			,ValidationLog.ValidatedOn
 		FROM
 			Package
 		INNER JOIN ValidationLog
@@ -75,7 +75,7 @@ INSERT INTO #tmp_Packages
 			Package.Processed = 1 --только обработанные пакеты
 			AND Success = 1
 	) AS ReportPacks
-		ON ActualDates.Max_Package = ReportPacks.Id
+		ON ActualDates.Max_Package = ReportPacks.Package
 		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
 
 
@@ -166,19 +166,14 @@ INSERT INTO #tmp
 		) AS CommunicationsControl	
 	) AS ComunicationsScore
 	INNER JOIN Member
-		ON Member.Guid = ComunicationsScore.SenderGuid
+		ON Member.Guid = ComunicationsScore.SenderGuid;
 
-CREATE TABLE #tmp2 ( --чтобы сортировать столбец так же, как и строку
-	Rank INT
-	,SenderGuid nvarchar(255)
-) 
-
-INSERT INTO #tmp2  
+WITH #tmp2 AS (
 	SELECT 
 		DISTINCT
 		#tmp.Rank
 		,#tmp.SenderGuid
-	FROM #tmp
+	FROM #tmp)
 
 
 SELECT 
@@ -224,96 +219,6 @@ INNER JOIN #tmp2 AS B
         </Field>
         <Field Name="ALLCountNewVersionED">
           <DataField>ALLCountNewVersionED</DataField>
-          <rd:TypeName>System.Int32</rd:TypeName>
-        </Field>
-      </Fields>
-    </DataSet>
-    <DataSet Name="GetMaxCountED">
-      <Query>
-        <DataSourceName>DataSource1</DataSourceName>
-        <QueryParameters>
-          <QueryParameter Name="@DateStart">
-            <Value>=Parameters!DateStart.Value</Value>
-          </QueryParameter>
-          <QueryParameter Name="@DateEnd">
-            <Value>=Parameters!DateEnd.Value</Value>
-          </QueryParameter>
-        </QueryParameters>
-        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
---DECLARE @DateStart DateTime2
---DECLARE @DateEnd DateTime2
---SET @DateStart = '2021-01-01'
---SET @DateEnd = '2021-06-01'
--------------------------------------------------------------------
-
-IF OBJECT_ID('tempdb..#tmp_Packages') is not null
-	DROP TABLE #tmp_Packages
-
-CREATE TABLE #tmp_Packages (
-							LogId BIGINT PRIMARY KEY
-							,ContainerXmlVersion nvarchar(255)
-						)
-INSERT INTO #tmp_Packages  
-	SELECT -- ActualLogs = актуальные пакеты с последним логом
-		ReportPacks.LogId
-		,ReportPacks.ContainerXmlVersion
-	FROM (
-		SELECT -- ActualDates = актуальные даты логов пакетов. Если логи по пакету менялись, то берем последний обработанный лог
-			Package AS Max_Package
-			,MAX(ValidatedOn)	AS Max_ValidatedOn
-		FROM	
-			ValidationLog
-		WHERE 
-			Success = 1 --????
-		GROUP BY
-			Package
-	) AS ActualDates
-	INNER JOIN (
-		SELECT -- ReportPacks = все обработанные (processed = 1) пакеты
-			ValidationLog.Id	AS LogId
-			,ValidationLog.ContainerXmlVersion
-			,Package.Id
-			,Package.ValidatedOn
-		FROM
-			Package
-		INNER JOIN ValidationLog
-			ON ValidationLog.Package = Package.Id
-		WHERE
-			--Package.Incoming = 1 --только исходящие пакеты 
-			Package.Processed = 1 --только обработанные пакеты
-			AND Success = 1
-	) AS ReportPacks
-		ON ActualDates.Max_Package = ReportPacks.Id
-		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
-
-SELECT
-	MAX(SumVersionControl.CountNewVersionED) AS MaxCountED
-FROM (
-	SELECT -- SumVersionControl = Кол-во переданных ЭД в формате 2.7.1 по каждому участнику
-		VersionControl.MemberY
-		,SUM(IIF(VersionControl.VersionED = '2.7.1', 1, 0)) AS CountNewVersionED
-	FROM (
-		SELECT  --VersionControl = Переданные ЭД в формате 2.7.1
-			ConfirmationControl.SenderGuid AS MemberY		--отправитель
-			--,IIF(ConfirmationControl.MessageType = N'Транспортный контейнер', ValidationLog.ContainerXmlVersion, ValidationLog.PackageXmlVersion) AS VersionED
-			,#tmp_Packages.ContainerXmlVersion AS VersionED
-		FROM	
-			ConfirmationControl	
-		INNER JOIN #tmp_Packages
-			ON #tmp_Packages.LogId = ConfirmationControl.ValidatingLog
-		WHERE 	
-			ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-			AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
-			--AND(ConfirmationControl.MessageType = N'Транспортный контейнер' OR ConfirmationControl.MessageType = N'Документ')
-	) AS VersionControl
-	GROUP BY
-		VersionControl.MemberY
-) AS SumVersionControl
-</CommandText>
-      </Query>
-      <Fields>
-        <Field Name="MaxCountED">
-          <DataField>MaxCountED</DataField>
           <rd:TypeName>System.Int32</rd:TypeName>
         </Field>
       </Fields>
@@ -1188,7 +1093,7 @@ FROM Member </CommandText>
             <RepeatRowHeaders>true</RepeatRowHeaders>
             <FixedColumnHeaders>true</FixedColumnHeaders>
             <FixedRowHeaders>true</FixedRowHeaders>
-            <DataSetName>DataSet1</DataSetName>
+            <DataSetName>Report10</DataSetName>
             <Top>2.44666cm</Top>
             <Height>7.67cm</Height>
             <Width>9.27cm</Width>
@@ -1402,7 +1307,7 @@ FROM Member </CommandText>
   </ReportParameters>
   <Variables>
     <Variable Name="MaxCountED">
-      <Value>=MAX(Fields!MaxCountED.Value, "GetMaxCountED")</Value>
+      <Value>=MAX(Fields!ALLCountNewVersionED.Value, "Report10")</Value>
     </Variable>
   </Variables>
   <rd:ReportUnitType>Cm</rd:ReportUnitType>

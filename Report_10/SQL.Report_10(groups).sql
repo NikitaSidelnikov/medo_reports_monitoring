@@ -14,7 +14,7 @@ IF OBJECT_ID('tempdb..#tmp_Packages') is not null
 
 CREATE TABLE #tmp_Packages (
 							LogId BIGINT PRIMARY KEY
-							,ContainerXmlVersion nvarchar(255)
+							,ContainerXmlVersion char(8)
 						)
 INSERT INTO #tmp_Packages  
 	SELECT -- ActualLogs = актуальные пакеты с последним логом
@@ -35,8 +35,8 @@ INSERT INTO #tmp_Packages
 		SELECT -- ReportPacks = все обработанные (processed = 1) пакеты
 			ValidationLog.Id	AS LogId
 			,ValidationLog.ContainerXmlVersion
-			,Package.Id
-			,Package.ValidatedOn
+			,ValidationLog.Package
+			,ValidationLog.ValidatedOn
 		FROM
 			Package
 		INNER JOIN ValidationLog
@@ -46,7 +46,7 @@ INSERT INTO #tmp_Packages
 			Package.Processed = 1 --только обработанные пакеты
 			AND Success = 1
 	) AS ReportPacks
-		ON ActualDates.Max_Package = ReportPacks.Id
+		ON ActualDates.Max_Package = ReportPacks.Package
 		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
 
 
@@ -137,19 +137,14 @@ INSERT INTO #tmp
 		) AS CommunicationsControl	
 	) AS ComunicationsScore
 	INNER JOIN Member
-		ON Member.Guid = ComunicationsScore.SenderGuid
+		ON Member.Guid = ComunicationsScore.SenderGuid;
 
-CREATE TABLE #tmp2 ( --чтобы сортировать столбец так же, как и строку
-	Rank INT
-	,SenderGuid nvarchar(255)
-) 
-
-INSERT INTO #tmp2  
+WITH #tmp2 AS (
 	SELECT 
 		DISTINCT
 		#tmp.Rank
 		,#tmp.SenderGuid
-	FROM #tmp
+	FROM #tmp)
 
 
 SELECT 

@@ -124,14 +124,14 @@ ORDER BY Name </CommandText>
       <Query>
         <DataSourceName>DataSource1</DataSourceName>
         <QueryParameters>
-          <QueryParameter Name="@Member">
-            <Value>=Parameters!Member.Value</Value>
-          </QueryParameter>
           <QueryParameter Name="@DateStart">
             <Value>=Parameters!DateStart.Value</Value>
           </QueryParameter>
           <QueryParameter Name="@DateEnd">
             <Value>=Parameters!DateEnd.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@Member">
+            <Value>=Parameters!Member.Value</Value>
           </QueryParameter>
         </QueryParameters>
         <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
@@ -139,58 +139,54 @@ ORDER BY Name </CommandText>
 --DECLARE @DateStart DateTime2
 --DECLARE @DateEnd DateTime2
 --SET @Member = 'ecc99082-f3b4-4028-8007-a7f69d6cd1d7'
---SET @DateStart = '2021-04-01'
+--SET @DateStart = '2021-03-01'
 --SET @DateEnd = '2021-06-01'
 -------------------------------------------------------------------
 
-SELECT 
-	CONCAT(N'№', Package.Id, N' от ', FORMAT(Package.ReceivedOn, 'dd.MM.yyyy')) AS PackageId
+SELECT
+	CONCAT(N'№', Packages.Id, N' от ', FORMAT(Packages.ReceivedOn, 'dd.MM.yyyy')) AS PackageId
 	,Packages.LogId
-FROM 
-	Package
-INNER JOIN  (
-	SELECT 
-		SuccesDate.Package
-		,ValidationLog.Id AS LogId
+FROM (
+	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
+		ProcessedPackage.Package		AS Id
+		,ProcessedPackage.ReceivedOn
+		,ProcessedPackage.Batch
+		,ProcessedPackage.LogId
 	FROM(
-		SELECT -- SuccesDate - актуальные валидные пакеты. Если логи по пакету менялись, то берем последний обработанный лог пакета
-			SuccesLogs.Package				AS Package
-			,MAX(SuccesLogs.ValidatedOn)	AS MaxValidatedOn
-		FROM (	
-			SELECT -- SuccesLogs = логи, которые были успешно обработаны (succes=1)
-				Package
-				,ValidatedOn
-			FROM
-				ValidationLog
-			WHERE 
-				Success = 1 --??
-		) AS SuccesLogs
+		SELECT -- ActualLog = последний лог по пакету
+			ValidationLog.Package			AS PackageId
+			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
+		FROM ValidationLog	
+		WHERE 
+			Success = 1
 		GROUP BY
-			SuccesLogs.Package
-	) AS SuccesDate
-	INNER JOIN ValidationLog
-		ON ValidationLog.Package = SuccesDate.Package
-		AND ValidationLog.ValidatedOn = SuccesDate.MaxValidatedOn
+			ValidationLog.Package
+	) AS ActualLog
+	INNER JOIN (
+		SELECT --ProcessedPackage = обработанные пакеты в период отчета
+			ValidationLog.Package
+			,ValidationLog.Id			AS LogId
+			,ValidationLog.ValidatedOn
+			,Package.Batch
+			,Package.ReceivedOn
+		FROM Package
+		INNER JOIN ValidationLog
+			ON ValidationLog.Package = Package.Id
+		WHERE
+			Processed = 1
+			AND Success = 1
+			AND Incoming = 0 --только исходящие пакеты
+			AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			AND Package.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --окончание периода отчета
+	) AS ProcessedPackage
+		ON ProcessedPackage.Package = ActualLog.PackageId
+		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
 ) AS Packages
-	ON Packages.Package = Package.Id
 INNER JOIN Batch
-	ON Package.Batch = Batch.Id --находим Member через Batch
+	ON Packages.Batch = Batch.Id --находим Member через Batch
 WHERE 
 	Batch.MemberGuid = @Member
-	AND Package.Processed = 1
-	AND Package.Incoming = 0
-	AND Package.ReceivedOn &gt;=  case when @DateStart is not null
-									then DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-									else Package.ReceivedOn
-									end
-	AND Package.ReceivedOn &lt;= case when @DateEnd is not null
-									then DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0') --начало периода отчета
-									else Package.ReceivedOn
-									end
-ORDER BY PackageId
-
-									
-</CommandText>
+ORDER BY PackageId				</CommandText>
       </Query>
       <Fields>
         <Field Name="PackageId">
@@ -1595,7 +1591,6 @@ ORDER BY PackageId
   <ReportParameters>
     <ReportParameter Name="DateStart">
       <DataType>DateTime</DataType>
-      <Nullable>true</Nullable>
       <DefaultValue>
         <Values>
           <Value>=DateSerial(Year(TODAY), Month(TODAY),"1")</Value>
@@ -1605,7 +1600,6 @@ ORDER BY PackageId
     </ReportParameter>
     <ReportParameter Name="DateEnd">
       <DataType>DateTime</DataType>
-      <Nullable>true</Nullable>
       <DefaultValue>
         <Values>
           <Value>=DateSerial(Year(Now()), Month(Now()), Day(Now()))</Value>

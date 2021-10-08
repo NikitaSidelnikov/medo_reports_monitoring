@@ -27,28 +27,26 @@
         <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
 --DECLARE @DateStart DateTime2
 --DECLARE @DateEnd DateTime2
---SET @DateStart = '2021-04-01'
+--SET @DateStart = '2021-03-01'
 --SET @DateEnd = '2021-06-01'
 -------------------------------------------------------------------
 
 IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
 
-CREATE TABLE #Tmp (
-					PackageId INT PRIMARY KEY
-					,LogId BIGINT 
-)
+CREATE TABLE #Tmp (LogId BIGINT NOT NULL)
 
 INSERT INTO #Tmp
 	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
-		ActualLog.PackageId
-		,ProcessedPackage.LogId
+		ProcessedPackage.LogId
 		--,ProcessedPackage.Success
 	FROM(
 		SELECT -- ActualLog = последний лог по пакету
 			ValidationLog.Package			AS PackageId
 			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
-		FROM ValidationLog		
+		FROM ValidationLog	
+		WHERE 
+			Success = 1
 		GROUP BY
 			ValidationLog.Package
 	) AS ActualLog
@@ -65,79 +63,74 @@ INSERT INTO #Tmp
 			AND Success = 1
 			AND Incoming = 0 --только исходящие пакеты
 			AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-			AND Package.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --окончание периода отчета
+			AND Package.ReceivedOn &lt;= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --окончание периода отчета
 	) AS ProcessedPackage
 		ON ProcessedPackage.Package = ActualLog.PackageId
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
 
-
 SELECT --Рейтинговая таблица по использованию ЭП в документах
 	DENSE_RANK() OVER	(
 							PARTITION BY 
-								Final_Rating.MemberType 
+								MemberType 
 							ORDER BY 
 								ROUND(100*(Prop_ES_in_ED + Prop_ES_in_TC)/2, 2) DESC
 						)								AS Rank		--позиция в рейтинге
-	,Final_Rating.MemberName
-	,Final_Rating.MemberType
-	,ROUND(100*(Prop_ES_in_ED + Prop_ES_in_TC)/2, 2)	AS Rating	--оценка участника
-	,Count_ED
-	,ISNULL(SUM_ES_in_ED, 0)							AS SUM_ES_in_ED
-	,ISNULL(SUM_ES_in_TC, 0)							AS SUM_ES_in_TC
-	,ISNULL(ROUND(Prop_ES_in_ED, 4), 0)					AS Prop_ES_in_ED
-	,ISNULL(ROUND(Prop_ES_in_TC, 4), 0)					AS Prop_ES_in_TC
-FROM (
-	SELECT --Статистика по использованию ЭП в ТК по каждому участнику
-		Member.Name											AS MemberName
+	,*
+FROM (	
+	SELECT --Рейтинговая таблица по использованию ЭП в документах
+		Member.Name
 		,Member.Type										AS MemberType
-		,IIF(Using_ES.MemberGuid is not null, COUNT(*), 0)	AS Count_ED			--Всего документов
-		,SUM(ES_in_ED)										AS SUM_ES_in_ED		--Всего ЭД с подписью
-		,SUM(ES_in_TC)										AS SUM_ES_in_TC		--Всего ТК с подписью
-		,SUM(CAST(ES_in_ED AS FLOAT))/COUNT(*)				AS Prop_ES_in_ED	--Доля ЭД с подписью
-		,SUM(CAST(ES_in_TC AS FLOAT))/COUNT(*)				AS Prop_ES_in_TC	--Доля ТК с подписью
+		,ROUND(100*(Prop_ES_in_ED + Prop_ES_in_TC)/2, 2)	AS Rating	--оценка участника
+		,Count_ED
+		,ISNULL(SUM_ES_in_ED, 0)							AS SUM_ES_in_ED
+		,ISNULL(SUM_ES_in_TC, 0)							AS SUM_ES_in_TC
+		,ISNULL(ROUND(Prop_ES_in_ED, 4), 0)					AS Prop_ES_in_ED
+		,ISNULL(ROUND(Prop_ES_in_TC, 4), 0)					AS Prop_ES_in_TC
 	FROM (
-		SELECT --Перечень ТК использующих/не использующих ЭП
-			PackageId
-			,LogId
-			,MemberGuid
-			,MAX(ES_in_ED) AS ES_in_ED
-			,MAX(ES_in_TC) AS ES_in_TC
+		SELECT --Статистика по использованию ЭП в ТК по каждому участнику
+			MemberGuid									
+			,IIF(MemberGuid is not null, COUNT(*), 0)			AS Count_ED			--Всего документов
+			,SUM(ES_in_ED)										AS SUM_ES_in_ED		--Всего ЭД с подписью
+			,SUM(ES_in_TC)										AS SUM_ES_in_TC		--Всего ТК с подписью
+			,SUM(CAST(ES_in_ED AS FLOAT))/COUNT(*)				AS Prop_ES_in_ED	--Доля ЭД с подписью
+			,SUM(CAST(ES_in_TC AS FLOAT))/COUNT(*)				AS Prop_ES_in_TC	--Доля ТК с подписью
 		FROM (
 			SELECT --Перечень ТК использующих/не использующих ЭП
-				#Tmp.PackageId
-				,#Tmp.LogId
-				,Score.MemberGuid
-				,IIF(Score.Value &lt;&gt; 0 and Score.Criterion = '3.13', 1, 0) AS ES_in_ED --Электронная подпись в ЭД
-				,IIF(Score.Value &lt;&gt; 0 and Score.Criterion = '3.14', 1, 0) AS ES_in_TC --Электронная подпись в ТК
-			FROM #Tmp 
-			INNER JOIN Score
-				ON Score.ValidationLog = #Tmp.LogId
-			WHERE 
-				Score.Criterion IN ('3.13', '3.14')
-		) AS ES_in_ED_TC
-		GROUP BY
-			PackageId
-			,LogId
-			,MemberGuid
-	) AS Using_ES
+				MemberGuid
+				,MAX(ES_in_ED) AS ES_in_ED
+				,MAX(ES_in_TC) AS ES_in_TC
+			FROM (
+				SELECT --Перечень ТК использующих/не использующих ЭП
+					Score.ValidationLog
+					,Score.MemberGuid
+					,IIF(Score.Value &lt;&gt; 0 and Score.Criterion = '3.13', 1, 0) AS ES_in_ED --Электронная подпись в ЭД
+					,IIF(Score.Value &lt;&gt; 0 and Score.Criterion = '3.14', 1, 0) AS ES_in_TC --Электронная подпись в ТК
+				FROM #Tmp 
+				INNER JOIN Score
+					ON Score.ValidationLog = #Tmp.LogId
+				WHERE 
+					Score.Criterion IN ('3.13', '3.14')
+			) AS SIG_in_ED_TC
+			GROUP BY
+				ValidationLog	
+				,MemberGuid
+		) AS Using_SIG
+		GROUP BY 
+			MemberGuid
+	) AS Stats_SIG
 	RIGHT JOIN Member
-		ON Member.Guid = Using_ES.MemberGuid
+		ON Member.Guid = Stats_SIG.MemberGuid
 	WHERE
 		Member.Active = 1
-	GROUP BY 
-		Member.Name
-		,Member.Type
-		,Using_ES.MemberGuid
-) AS Final_Rating
-</CommandText>
+) AS Score_SIG</CommandText>
       </Query>
       <Fields>
         <Field Name="Rank">
           <DataField>Rank</DataField>
           <rd:TypeName>System.Int64</rd:TypeName>
         </Field>
-        <Field Name="MemberName">
-          <DataField>MemberName</DataField>
+        <Field Name="Name">
+          <DataField>Name</DataField>
           <rd:TypeName>System.String</rd:TypeName>
         </Field>
         <Field Name="MemberType">
@@ -1380,6 +1373,14 @@ FROM (
             <RepeatColumnHeaders>true</RepeatColumnHeaders>
             <FixedColumnHeaders>true</FixedColumnHeaders>
             <DataSetName>Report1</DataSetName>
+            <SortExpressions>
+              <SortExpression>
+                <Value>=Fields!Rating.Value</Value>
+              </SortExpression>
+              <SortExpression>
+                <Value>=Fields!MemberName.Value</Value>
+              </SortExpression>
+            </SortExpressions>
             <Top>18.27666mm</Top>
             <Left>0.00001mm</Left>
             <Height>28.77762mm</Height>

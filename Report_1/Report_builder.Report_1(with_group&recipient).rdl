@@ -31,7 +31,7 @@
 --DECLARE @DateStart DateTime2
 --DECLARE @DateEnd DateTime2
 --DECLARE @Recipient nvarchar(255)
---SET @DateStart = '2021-04-01'
+--SET @DateStart = '2020-01-01'
 --SET @DateEnd = '2021-06-01'
 --SET @Recipient = '1D04CA3E-DF1A-0CB4-C325-6EF4003CA2AB' --Минцифры России
 -------------------------------------------------------------------
@@ -39,14 +39,14 @@
 
 IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
-
+	
 CREATE TABLE #Tmp (
-					PackageId INT PRIMARY KEY
-					,LogId BIGINT 
-					,SenderGuid char(36)
-					,PackageXml nvarchar(255)
+					--PackageId INT PRIMARY KEY
+					--,LogId BIGINT 
+					SenderGuid char(36)
+					--,PackageXml nvarchar(255)
 					,PackageXmlVersion nvarchar(255)
-					,ContainerXml nvarchar(255)
+					--,ContainerXml nvarchar(255)
 					,ContainerXmlVersion nvarchar(255)
 					,Type INT
 					--,Success BIT
@@ -61,14 +61,13 @@ Type =
 	4 -- ТК
 */
 SELECT --ActualPackagesWithType = обработанные пакеты с последним логом в период отчета с указанием типа пакета
-	DISTINCT
-	PackageId
-	,LogId
+	--PackageId
+	--,LogId
 	--,Member.Guid AS MemberGuid
-	,SenderGuid
-	,PackageXml
+	SenderGuid
+	--,PackageXml
 	,PackageXmlVersion
-	,ContainerXml
+	--,ContainerXml
 	,ContainerXmlVersion
 	,PackageType = CASE 
 						WHEN ConfirmationControl.MessageType = N'Транспортный контейнер'
@@ -96,7 +95,9 @@ FROM(
 		SELECT -- ActualLog = последний лог по пакету
 			ValidationLog.Package	AS PackageId
 			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
-		FROM ValidationLog		
+		FROM ValidationLog	
+		WHERE 
+			Success = 1
 		GROUP BY
 			ValidationLog.Package
 	) AS ActualLog

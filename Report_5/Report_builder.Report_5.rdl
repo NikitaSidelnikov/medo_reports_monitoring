@@ -33,51 +33,50 @@
 
 if object_id('tempdb..#tmp_ValidationLog') is not null
 	DROP TABLE #tmp_ValidationLog
-
+	
 CREATE TABLE #tmp_ValidationLog (
-								LogId BIGINT PRIMARY KEY
-								,Incoming BIT
+								LogId BIGINT
 								,ReceivedOn DATETIME2(7)
+								,Incoming BIT
 							) --Таблица всех валидных последних логов
 
-INSERT INTO #tmp_ValidationLog  
-	SELECT -- ActualLogs - Id последних валидных логов по каждому обработанному пакету в период отчета
-		ValidationLog.Id		AS LogId
-		,SuccesPackage.Incoming
-		,SuccesPackage.ReceivedOn
-	FROM
-		ValidationLog		
-	INNER JOIN (
-		SELECT -- SuccesPackage = даты последних валидных логов по каждому обработанному пакету в период отчета. Если у пакета несколько логов валидаций, то для каждого запоминаем свой ValidatedOn и максимальный ValidatedOn по пакету. А потом сравним их и отберем те, что равны
-			SuccesLogs.Package		AS PackageId
-			,SuccesLogs.Incoming
-			,SuccesLogs.ValidatedOn
-			,MAX(SuccesLogs.ValidatedOn) OVER (PARTITION BY SuccesLogs.Package)	AS Max_ValidatedOn
-			,SuccesLogs.ReceivedOn	
-		FROM (	
-			SELECT -- SuccesLogs = все валидные логи по всем обработанным пакетам в период отчета
-				ValidationLog.Package
-				,ValidationLog.ValidatedOn
-				,Package.Incoming
-				,Package.ReceivedOn
-			FROM
-				ValidationLog
-			INNER JOIN Package
-				ON Package.Id = ValidationLog.Package
-			WHERE 
-				ValidationLog.Success = 1
-				AND Package.Processed = 1
-		) AS SuccesLogs
-	) AS SuccesPackage
-		ON SuccesPackage.PackageId = ValidationLog.Package
-		AND SuccesPackage.Max_ValidatedOn = ValidationLog.ValidatedOn
-	WHERE
-		SuccesPackage.Max_ValidatedOn = SuccesPackage.ValidatedOn
 
+INSERT INTO #tmp_ValidationLog  
+	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
+		ProcessedPackage.LogId
+		,ProcessedPackage.ReceivedOn
+		,ProcessedPackage.Incoming
+	FROM(
+		SELECT -- ActualLog = последний лог по пакету
+			ValidationLog.Package			AS PackageId
+			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
+		FROM ValidationLog		
+		GROUP BY
+			ValidationLog.Package
+	) AS ActualLog
+	INNER JOIN (
+		SELECT --ProcessedPackage = обработанные пакеты в период отчета
+			ValidationLog.Package
+			,ValidationLog.Id			AS LogId
+			,ValidationLog.ValidatedOn
+			,Package.ReceivedOn
+			,Package.Incoming
+		FROM Package
+		INNER JOIN ValidationLog
+			ON ValidationLog.Package = Package.Id
+		WHERE
+			Processed = 1
+			AND Success = 1
+			--AND Incoming = 0 --только исходящие пакеты
+			--AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			--AND Package.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --окончание периода отчета
+	) AS ProcessedPackage
+		ON ProcessedPackage.Package = ActualLog.PackageId
+		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
 
 SELECT
 	DENSE_RANK() OVER(
-		ORDER BY P1+P2+P3+P4+P5+MemberScoreP6.RatingP6+MemberScoreP7.RatingP7 DESC
+		ORDER BY P1+P2+P3+P4+P5+MemberScoreP6.RatingP6+MemberScoreP7.RatingP7 DESC, Member.Name ASC
 	  ) AS RankMember  --тут присваиваем позицию. Если очки у 1-ого и 2-ого участников одинаковы - то место одинаково. Если хоть по одной из групп критериев 0 очков или NULL - не попадает в общий рейтинг
 	,P1+P2+P3+P4+P5+MemberScoreP6.RatingP6+MemberScoreP7.RatingP7	AS Rating
 	,Member.Name
@@ -112,70 +111,70 @@ FROM(
 	FROM(	
 		SELECT   -- Финальная таблица по простым форматным оценкам (п1-п5)
 			MemberGuid 
-			,'countP1' = IIF([1] is not null, CountPackage, 0)			--case when ([1] is not null) then CountPackage end
+			,'countP1' = IIF([1] is not null, CountCriterion, 0)			--case when ([1] is not null) then CountPackage end
 			,[1]		AS P1											--Формат исходящего пакета
-			,'countP2' = IIF([2] is not null, CountPackage, 0)
+			,'countP2' = IIF([2] is not null, CountCriterion, 0)
 			,[2]		AS P2											--Формат исходящего сообщения
-			,'countP3' = IIF([3] is not null, CountPackage, 0)
+			,'countP3' = IIF([3] is not null, CountCriterion, 0)
 			,[3]		AS P3											--Формат исходящего документа
-			,'countP4' = IIF([4] is not null, CountPackage, 0)
+			,'countP4' = IIF([4] is not null, CountCriterion, 0)
 			,[4]		AS P4											--Формат исходящего уведомления
-			,'countP5' = IIF([5] is not null, CountPackage, 0)
+			,'countP5' = IIF([5] is not null, CountCriterion, 0)
 			,[5]		AS P5											--Формат исходящей квитанции
-		FROM(
-			SELECT  -- FinalScoreForMemberName = Сумма всех оценок по всем пакетам, кол-во пакетов по каждому участнику и итоговый рейтинг (среднее)
-				Member.Guid												AS MemberGuid 
+		FROM ( -- FinalScoreForMemberName = Сумма всех оценок по всем пакетам, кол-во пакетов по каждому участнику и итоговый рейтинг (среднее)
+			SELECT
+				Member.Guid											AS MemberGuid 
 				--,ActualSumScore.CriterionGroup
-				,CAST(SUBSTRING(ActualSumScore.Criterion, 1, 1) AS INT)	AS CriterionGroup
-				,MAX(CountCriterion)									AS CountPackage
-				--,COUNT(ActualSumScore.SumValue) AS CountPackage
-				,SUM(ActualSumScore.AvgValue)							AS Rating
+				,SUBSTRING(ActualSumScore.Criterion, 1, 1)			AS CriterionGroup
+				,MAX(IIF(Criterion LIKE '%.1', CountCriterion, 0))	AS CountCriterion	--критерий №1 любой группы критериев не повторяется в отличии от других, которые либо повторяются (3.2), либо отсутствуют вовсе (5.2). Поэтому по этому критерию можно четко определить кол-во пакетов по данной группе критериев
+				,SUM(ActualSumScore.AvgValue)						AS Rating
 			FROM (
 				SELECT -- ActualSumScore = средняя оценка по каждому критерию для каждого участника
-					ScoreGrouped.MemberGuid
+					Score.MemberGuid
 					--,ScoreGrouped.CriterionGroup
-					,ScoreGrouped.Criterion
+					,Score.Criterion
 					--,#tmp_ValidationLog.LogId
-					,COUNT(CAST(SUBSTRING(ScoreGrouped.Criterion, 1, 1) AS INT))	AS CountCriterion  
-					,AVG(ScoreGrouped.Value)										AS AvgValue
+					,COUNT(*)					AS CountCriterion --не верно, ибо где-то может быть больше критериев (3.2) , где-то меньше (1.2)
+					,AVG(Score.Value)			AS AvgValue
 				FROM
-					#tmp_ValidationLog --Таблица всех валидных последних логов
-				INNER JOIN ( --ScoreGrouped = оценки всех пакетов
-					SELECT
-						DISTINCT 
-						Score.ValidationLog
-						,Score.Value
-						,Score.MemberGuid
-						--,Criterion.CriterionGroup
-						,Score.Criterion
-					FROM
-						Score 
-				) AS ScoreGrouped
-					ON #tmp_ValidationLog.LogId = ScoreGrouped.ValidationLog
+					#tmp_ValidationLog
+				INNER JOIN Score with(forceseek)
+					ON Score.ValidationLog = #tmp_ValidationLog.LogId  
+				--INNER JOIN ( --ScoreGrouped = оценки всех пакетов
+				--	SELECT
+				--		DISTINCT 
+				--		Score.ValidationLog
+				--		,Score.Value						--distinct сжирал много времени,  но он влилял на кол-во строк оценок (в группе критериев №3 14 критериев, но могло быть в Score 15 и больше)
+				--		,Score.MemberGuid					--однако все value у повторяющихся строк 0, поэтому на среднюю оценку они не будут влиять, но на кол-во влияют
+				--		--,Criterion.CriterionGroup
+				--		,Score.Criterion
+				--	FROM
+				--		Score 
+				--) AS ScoreGrouped
+				--	ON #tmp_ValidationLog.LogId = ScoreGrouped.ValidationLog
 				WHERE
-					#tmp_ValidationLog.Incoming = 0
-					AND #tmp_ValidationLog.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-					AND #tmp_ValidationLog.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
-					--AND #tmp_ValidationLog.ReceivedOn &gt;=  '2021-03-01' --начало периода отчета
-					--AND #tmp_ValidationLog.ReceivedOn &lt; '2021-04-01' --конец периода отчета
+					--#tmp_ValidationLog.Incoming = 0
+					#tmp_ValidationLog.ReceivedOn between DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+					and DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
+					AND Incoming = 0
 				GROUP BY
-					ScoreGrouped.MemberGuid
-					--,#tmp_ValidationLog.LogId
-					--,ScoreGrouped.CriterionGroup					
-					,ScoreGrouped.Criterion
+					Score.MemberGuid			
+					,Score.Criterion
 			) AS ActualSumScore
 			RIGHT OUTER JOIN Member
 				ON Member.Guid = ActualSumScore.MemberGuid
+			WHERE 
+				Member.Active = 1
 			GROUP BY
 				Member.Guid 
 				--,ActualSumScore.CriterionGroup
-				,CAST(SUBSTRING(ActualSumScore.Criterion, 1, 1) AS INT)
-			)x
-			PIVOT(
-				MAX(Rating)
-				FOR CriterionGroup
-				IN([1],[2],[3],[4],[5])	 
-			) AS PivotTable
+				,SUBSTRING(ActualSumScore.Criterion, 1, 1)
+		) AS FinalScoreForMemberName
+		PIVOT(
+			MAX(FinalScoreForMemberName.Rating)
+			FOR FinalScoreForMemberName.CriterionGroup
+			IN([1],[2],[3],[4],[5])	 
+		) AS PivotTable
 	) AS Final_Rating
 	GROUP BY 
 		MemberGuid 
@@ -381,9 +380,7 @@ INNER JOIN (
 RIGHT JOIN Member
 	ON Member.Guid = FormatScore.MemberGuid COLLATE SQL_Latin1_General_CP1_CI_AS
 WHERE
-	Active = 1
-
-</CommandText>
+	Active = 1</CommandText>
         <rd:UseGenericDesigner>true</rd:UseGenericDesigner>
       </Query>
       <Fields>
@@ -549,10 +546,10 @@ WHERE
               </Paragraph>
             </Paragraphs>
             <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>72.2459mm</Left>
+            <Top>11.92997mm</Top>
+            <Left>73.19935mm</Left>
             <Height>6mm</Height>
-            <Width>27.94785mm</Width>
+            <Width>40.1044mm</Width>
             <ZIndex>2</ZIndex>
             <Style>
               <Border>
@@ -648,7 +645,7 @@ WHERE
             <Top>11.92389mm</Top>
             <Left>66.0598mm</Left>
             <Height>6mm</Height>
-            <Width>6.1861mm</Width>
+            <Width>7.13955mm</Width>
             <ZIndex>5</ZIndex>
             <Style>
               <Border>
@@ -6074,7 +6071,6 @@ WHERE
                           <PaddingBottom>2pt</PaddingBottom>
                         </Style>
                       </Textbox>
-                      <rd:Selected>true</rd:Selected>
                     </CellContents>
                   </TablixHeader>
                   <TablixMembers>
