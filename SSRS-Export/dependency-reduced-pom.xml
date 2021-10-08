@@ -2,7 +2,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.wsdl</groupId>
-  <artifactId>ssrs-export</artifactId>
+  <artifactId>SSRS-Export</artifactId>
   <version>1.0</version>
   <build>
     <plugins>
@@ -80,8 +80,8 @@
                 <txtProductVersion>1.0.0.0</txtProductVersion>
                 <productName>${project.name}</productName>
                 <companyName>Voskhod</companyName>
-                <internalName>Voskhod-SSRSExporting</internalName>
-                <originalFilename>SSRS-export.exe</originalFilename>
+                <internalName>Voskhod-SSRS-Export</internalName>
+                <originalFilename>SSRS-Export.exe</originalFilename>
               </versionInfo>
             </configuration>
           </execution>

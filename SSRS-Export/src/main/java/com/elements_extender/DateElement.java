@@ -3,8 +3,11 @@ package com.elements_extender;
 import com.generated.ReportParameter;
 import javafx.scene.control.DatePicker;
 
+import java.text.SimpleDateFormat;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Date;
 
 public class DateElement extends ParamElement {
     private final DatePicker paramDate = new DatePicker();
@@ -15,15 +18,39 @@ public class DateElement extends ParamElement {
         paramDate.getStylesheets().add("fxml/style.css");
 
         paramDate.focusedProperty().addListener((observableValue, s, t1) -> {
-            final DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd.MM.yyyy");
-            final LocalDate dt;
+            SimpleDateFormat dtf = new SimpleDateFormat("MM/dd/yyyy");
+            //DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd.MM.yyyy");
+            Date date = null;
+            LocalDate dt;
             try {
-                dt = LocalDate.parse(paramDate.getEditor().getText(), dtf);
+                final SimpleDateFormat parser = new SimpleDateFormat("MM/dd/yyyy");
+                date = parser.parse(paramDate.getEditor().getText());
+                dt = date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+                //dt = LocalDate.parse(paramDate.getEditor().getText(), dtf);
                 paramDate.setValue(dt);
                 if(!paramDate.getValue().toString().equals(this.paramValue)) {
                     setValue(paramDate.getValue());
                 }
                 paramDate.setStyle("");
+            }
+            catch (Exception e){
+                paramDate.setStyle("-fx-border-color: red; -fx-text-inner-color: red;");
+                setValue(null);
+            }
+
+            try {
+                //dtf = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+                final SimpleDateFormat parser = new SimpleDateFormat("MM/dd/yyyy");
+                if(date==null) {
+                    date = parser.parse(paramDate.getEditor().getText());
+                    dt = date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+                    //dt = LocalDate.parse(paramDate.getEditor().getText(), dtf);
+                    paramDate.setValue(dt);
+                    if (!paramDate.getValue().toString().equals(this.paramValue)) {
+                        setValue(paramDate.getValue());
+                    }
+                    paramDate.setStyle("");
+                }
             }
             catch (Exception e){
                 paramDate.setStyle("-fx-border-color: red; -fx-text-inner-color: red;");
@@ -42,11 +69,25 @@ public class DateElement extends ParamElement {
         if(param.isDefaultValuesQueryBased()) {
             String defaultDate = param.getDefaultValues().getValue().get(0);
             defaultDate = defaultDate.substring(0 , 10);
-            final DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd.MM.yyyy");
-            final LocalDate dt = LocalDate.parse(defaultDate, dtf);
+            LocalDate dt = null;
+            Date date = null;
+            try {
+                final SimpleDateFormat parser = new SimpleDateFormat("MM/dd/yyyy");
+                date = parser.parse(defaultDate);
+            }
+            catch (Exception e) { e.printStackTrace(); }
+            try {
+                final SimpleDateFormat parser = new SimpleDateFormat("dd.MM.yyyy");
+                if(date==null)
+                    date = parser.parse(defaultDate);
+            }
+            catch (Exception e) { e.printStackTrace(); }
 
-            paramDate.setValue(dt);
-            setValue(paramDate.getValue());
+            if(date!=null) {
+                dt = date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+                paramDate.setValue(dt);
+                setValue(paramDate.getValue());
+            }
         }
     }
 
