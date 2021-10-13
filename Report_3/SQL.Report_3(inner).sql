@@ -65,12 +65,9 @@ INSERT INTO #tmp_Packages
 			Package
 		INNER JOIN ValidationLog
 			ON ValidationLog.Package = Package.Id
-		INNER JOIN Batch
-			ON Batch.Id = Package.Batch
-		INNER JOIN Member
-			ON Member.Guid = Batch.MemberGuid
 		WHERE
 			Package.Processed = 1 --только обработанные пакеты
+			AND Success = 1 --????
 	) AS ReportPacks
 		ON ActualDates.Max_Package = ReportPacks.Id
 		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
@@ -125,8 +122,8 @@ INSERT INTO #ScoreReceipt
 			ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 		WHERE
 			AllRequestMessage.PackageDelivaredOn is not null
-			AND AllRequestMessage.PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
-			AND DATEADD(DAY, 5, AllRequestMessage.PackageDelivaredOn) <= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
+			AND AllRequestMessage.PackageDelivaredOn >=  DATEADD(DAY, -3, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+			AND AllRequestMessage.PackageDelivaredOn < DATEADD(DAY, -2, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0'))	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 			AND AllRequestMessage.MinPackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
 		GROUP BY 
 			AllRequestMessage.MessageUid
@@ -243,16 +240,17 @@ INSERT INTO #ScoreNotifications
 															,MessageType
 												) AS MinPackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
 			FROM  
-				RegistrationControl --WHERE Request = 1 отсутсвует, ибо мы смотрим ВСЕ входящие учаснику пакеты
+				RegistrationControl
 			WHERE
 				RecipientGuid = @Member
+				AND RequestCount = 1
 		) AS AllRequestMessage
 		INNER JOIN #tmp_Packages
 			ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 		WHERE
 			AllRequestMessage.PackageDelivaredOn is not null
 			AND AllRequestMessage.PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
-			AND DATEADD(DAY, 5, AllRequestMessage.PackageDelivaredOn) <= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
+			AND AllRequestMessage.PackageDelivaredOn < DATEADD(DAY, -4, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0'))	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 			AND AllRequestMessage.PackageDelivaredOn = AllRequestMessage.MinPackageDelivaredOn
 		GROUP BY
 			AllRequestMessage.DocumentUid 

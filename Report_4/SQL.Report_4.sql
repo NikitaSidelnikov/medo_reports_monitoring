@@ -68,6 +68,7 @@ INSERT INTO #tmp_Packages
 		WHERE
 			--Package.Incoming = 1 --только исходящие пакеты 
 			Package.Processed = 1 --только обработанные пакеты
+			AND Success = 1 --????
 	) AS ReportPacks
 		ON ActualDates.Max_Package = ReportPacks.Id
 		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
@@ -118,13 +119,13 @@ INSERT INTO #ScoreReceipt
 					,RecipientGuid
 					,PackageDelivaredOn
 					,CASE	WHEN (
-								PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
-								AND DATEADD(DAY, 5, PackageDelivaredOn) <= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
+									PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+									AND PackageDelivaredOn < DATEADD(DAY, -4, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0'))	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 								)
 								THEN 1 --период отчета
 							WHEN (
-								PackageDelivaredOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0') --начало периода сравнения
-								AND PackageDelivaredOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '23', '59', '59', '0') --конец периода сравнения
+									PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+									AND PackageDelivaredOn < DATEADD(DAY, -4, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '0', '0', '0', '0'))	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 								) 
 								THEN 2 --период сравнения
 							ELSE 0 --Пакеты, не входящие в периоды очтета или сравнения
@@ -135,13 +136,16 @@ INSERT INTO #ScoreReceipt
 													,MessageType
 												) AS MinPackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
 				FROM 
-					ConfirmationControl --WHERE Request = 1 отсутсвует, ибо мы смотрим ВСЕ входящие учаснику пакеты
+					ConfirmationControl
+				WHERE
+					--RequestCount = 1
+					PackageDelivaredOn >=  DATEADD(DAY, -3, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+					AND PackageDelivaredOn < DATEADD(DAY, -2, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0'))	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок		
 			) AS AllRequestMessage
 			INNER JOIN #tmp_Packages
 				ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 			WHERE
 				AllRequestMessage.PackageDelivaredOn is not null
-				AND AllRequestMessage.Period IN (1,2)
 				AND AllRequestMessage.MinPackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
 			GROUP BY 
 				AllRequestMessage.MessageUid
@@ -266,13 +270,13 @@ INSERT INTO #ScoreNotifications
 					,MessageType
 					,PackageDelivaredOn
 					,CASE	WHEN (
-								PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
-								AND DATEADD(DAY, 5, PackageDelivaredOn) <= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
+									PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+									AND PackageDelivaredOn < DATEADD(DAY, -4, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0'))	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 								)
 								THEN 1 --период отчета
 							WHEN (
-								PackageDelivaredOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0') --начало периода сравнения
-								AND PackageDelivaredOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '23', '59', '59', '0') --конец периода сравнения
+									PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+									AND PackageDelivaredOn < DATEADD(DAY, -4, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEndCompare), DATEPART(MONTH, @DateEndCompare), DATEPART(DAY, @DateEndCompare), '0', '0', '0', '0'))	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 								) 
 								THEN 2 --период сравнения
 							ELSE 0 --Пакеты, не входящие в периоды очтета или сравнения
@@ -283,13 +287,16 @@ INSERT INTO #ScoreNotifications
 																,MessageType
 													) AS MinPackageDelivaredOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату
 				FROM  
-					RegistrationControl --WHERE Request = 1 отсутсвует, ибо мы смотрим ВСЕ входящие учаснику пакеты
+					RegistrationControl 
+				WHERE
+					RequestCount = 1
+					AND PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStartCompare), DATEPART(MONTH, @DateStartCompare), DATEPART(DAY, @DateStartCompare), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+					AND PackageDelivaredOn < DATEADD(DAY, -4, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0'))	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок		
 			) AS AllRequestMessage
 			INNER JOIN #tmp_Packages
 				ON #tmp_Packages.LogId = AllRequestMessage.ValidatingLog
 			WHERE
 				AllRequestMessage.PackageDelivaredOn is not null
-				AND AllRequestMessage.Period IN (1,2)
 				AND AllRequestMessage.MinPackageDelivaredOn = AllRequestMessage.PackageDelivaredOn
 			GROUP BY
 				AllRequestMessage.DocumentUid 
@@ -367,7 +374,7 @@ GROUP BY
 SELECT
 	DENSE_RANK() OVER (PARTITION BY 
 								MemberType
-								,IIF((Score_Period_1+Score_Period_2 = 0) OR (Score_Period_1 is null AND Score_Period_2 is null), 1, 0)
+								,IIF((Score_Period_1 = 0 or Score_Period_1 is null) and (Score_Period_2 = 0 or Score_Period_2 is null), 1, 0)
 						ORDER BY 
 								ROUND(100*(ISNULL(Score_Period_1, 0) - ISNULL(Score_Period_2, 0))/(1 + ABS(ISNULL(Score_Period_1, 0)) + ABS(ISNULL(Score_Period_2, 0))), 2) DESC
 						)	AS Rank

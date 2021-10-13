@@ -42,7 +42,7 @@ INSERT INTO #tmp_ValidationLog
 			AND Success = 1
 			AND Incoming = 0 --только исходящие пакеты
 			AND Package.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-			AND Package.ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --окончание периода отчета
+			AND Package.ReceivedOn < DATEADD(DAY, 1, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0')) --конец периода отчета
 	) AS ProcessedPackage
 		ON ProcessedPackage.Package = ActualLog.PackageId
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
