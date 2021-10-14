@@ -7,13 +7,11 @@
 
 IF object_id('tempdb..#tmp') is not null
 	DROP TABLE #tmp
-IF object_id('tempdb..#tmp2') is not null
-	DROP TABLE #tmp2
 IF OBJECT_ID('tempdb..#tmp_Packages') is not null
 	DROP TABLE #tmp_Packages
 
 CREATE TABLE #tmp_Packages (
-							LogId BIGINT PRIMARY KEY
+							LogId BIGINT
 							,ContainerXmlVersion char(8)
 						)
 INSERT INTO #tmp_Packages  
@@ -149,10 +147,8 @@ WITH #tmp2 AS (
 SELECT 
 	A.Rank AS RankA
 	,A.SenderGuid
-	--,A.SenderName
 	,B.Rank AS RankB
 	,A.RecipientGuid
-	--,A.RecipientName
 	,A.CountNewVersionED
 	,A.CountActiveCommunications
 	,A.ALLCountNewVersionED	

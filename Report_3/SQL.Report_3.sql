@@ -13,7 +13,7 @@ IF OBJECT_ID('tempdb..#ScoreNotifications') is not null
 	DROP TABLE #ScoreNotifications
 
 CREATE TABLE #tmp_Packages (
-							LogId BIGINT PRIMARY KEY
+							LogId BIGINT
 							,PackageId INT
 							,ReceivedOn DATETIME2(7) NULL
 						)
