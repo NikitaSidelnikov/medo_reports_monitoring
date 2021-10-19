@@ -1,52 +1,50 @@
 ---------------------------ПАРАМЕТРЫ-------------------------------
 --DECLARE @DateStart DateTime2
 --DECLARE @DateEnd DateTime2
---SET @DateStart = '2021-04-01'
---SET @DateEnd = '2021-06-01'
+--SET @DateStart = '2021-03-01'
+--SET @DateEnd = '2021-04-01'
 -------------------------------------------------------------------
+
+if object_id('tempdb..#tmp_ValidationLog2') is not null
+	DROP TABLE #tmp_ValidationLog2
 
 if object_id('tempdb..#tmp_ValidationLog') is not null
 	DROP TABLE #tmp_ValidationLog
 	
 CREATE TABLE #tmp_ValidationLog (
 								LogId BIGINT
-								,ReceivedOn DATETIME2(7)
-								,Incoming BIT
+								,Success BIT
 							) --Таблица всех валидных последних логов
 
+CREATE TABLE #tmp_ValidationLog2 (
+								LogId BIGINT PRIMARY KEY
+							) --Таблица всех валидных последних логов
 
 INSERT INTO #tmp_ValidationLog  
-	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
-		ProcessedPackage.LogId
-		,ProcessedPackage.ReceivedOn
-		,ProcessedPackage.Incoming
-	FROM(
-		SELECT -- ActualLog = последний лог по пакету
-			ValidationLog.Package			AS PackageId
-			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
-		FROM ValidationLog		
-		GROUP BY
-			ValidationLog.Package
-	) AS ActualLog
-	INNER JOIN (
-		SELECT --ProcessedPackage = обработанные пакеты в период отчета
-			ValidationLog.Package
-			,ValidationLog.Id			AS LogId
-			,ValidationLog.ValidatedOn
-			,Package.ReceivedOn
-			,Package.Incoming
+	SELECT --ProcessedPackage = обработанные пакеты в период отчета
+			ValidationLog.Id			AS LogId
+			,Success
 		FROM Package
 		INNER JOIN ValidationLog
 			ON ValidationLog.Package = Package.Id
+			AND ValidationLog.ValidatedOn = Package.ValidatedOn
+		WHERE
+			Processed = 1
+
+INSERT INTO #tmp_ValidationLog2  
+	SELECT --ProcessedPackage = обработанные пакеты в период отчета
+			ValidationLog.Id	AS LogId
+		FROM Package
+		INNER JOIN ValidationLog
+			ON ValidationLog.Package = Package.Id
+			AND ValidationLog.ValidatedOn = Package.ValidatedOn
 		WHERE
 			Processed = 1
 			AND Success = 1
-			--AND Incoming = 0 --только исходящие пакеты
-			--AND Package.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-			--AND Package.ReceivedOn < DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --окончание периода отчета
-	) AS ProcessedPackage
-		ON ProcessedPackage.Package = ActualLog.PackageId
-		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
+			AND Incoming = 0
+			AND Package.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+			AND Package.ReceivedOn < DATEADD(DAY, 1, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0')) --конец периода отчета
+
 
 SELECT
 	DENSE_RANK() OVER(
@@ -111,9 +109,9 @@ FROM(
 					,COUNT(*)					AS CountCriterion --не верно, ибо где-то может быть больше критериев (3.2) , где-то меньше (1.2)
 					,AVG(Score.Value)			AS AvgValue
 				FROM
-					#tmp_ValidationLog
+					#tmp_ValidationLog2
 				INNER JOIN Score with(forceseek)
-					ON Score.ValidationLog = #tmp_ValidationLog.LogId  
+					ON Score.ValidationLog = #tmp_ValidationLog2.LogId  
 				--INNER JOIN ( --ScoreGrouped = оценки всех пакетов
 				--	SELECT
 				--		DISTINCT 
@@ -126,10 +124,6 @@ FROM(
 				--		Score 
 				--) AS ScoreGrouped
 				--	ON #tmp_ValidationLog.LogId = ScoreGrouped.ValidationLog
-				WHERE
-					#tmp_ValidationLog.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-					AND #tmp_ValidationLog.ReceivedOn < DATEADD(DAY, 1, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0')) --конец периода отчета
-					AND Incoming = 0
 				GROUP BY
 					Score.MemberGuid			
 					,Score.Criterion
@@ -152,7 +146,6 @@ FROM(
 	GROUP BY 
 		MemberGuid 
 ) AS FormatScore
-
 INNER JOIN (
 	SELECT --MemberScoreP6 --подсчет кол-ва набранных очков, кол-во принятых пакетов участником и рейтинга (среднее)
 		Member.Guid													AS MemberGuid 
@@ -189,26 +182,24 @@ INNER JOIN (
 						RegistrationControl.DocumentUid
 						,RegistrationControl.RecipientGuid
 						,RegistrationControl.SenderGuid
-						,RegistrationControl.MessageType
 						,MAX(DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn)) AS MaxReactedOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату ожидания
 					FROM RegistrationControl 
 					INNER JOIN #tmp_ValidationLog  --Таблица всех валидных последних логов
 						ON #tmp_ValidationLog.LogId = RegistrationControl.ValidatingLog
 					WHERE
 						RequestCount = 1
-						AND PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
-						AND PackageDelivaredOn < DATEADD(DAY, -4, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0'))	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
+						AND Success = 1
+						AND RegistrationControl.PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 5 дней до отчетного периода
+						AND DATEADD(DAY, 5, RegistrationControl.PackageDelivaredOn) <= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 					GROUP BY
-						DocumentUid
-						,SenderGuid
+						SenderGuid
 						,RecipientGuid
-						,MessageType
+						,DocumentUid
 				) AS RequestMessage -- выбираем документы и ТК, которые ожидают уведомления
 				LEFT OUTER JOIN (
 					SELECT --ResponseMessage - уведомления, отправленные в ответ на документы/ТК по каждому участнику и каждому uid Документа
 						DocumentUid
 						,SenderGuid
-						,MessageType
 						,RecipientGuid
 						,MIN(PackageDelivaredOn) AS MinPackageDelivaredOn --если более 1 одинаковой отправки уведомления (sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи
 					FROM 
@@ -217,11 +208,11 @@ INNER JOIN (
 						ON #tmp_ValidationLog.LogId = RegistrationControl.ValidatingLog
 					WHERE 	
 						ResponseCount = 1
+						AND Success = 1
 					GROUP BY
-						DocumentUid
-						,SenderGuid
+						SenderGuid
 						,RecipientGuid
-						,MessageType
+						,DocumentUid
 				) AS ResponseMessage -- выбираем уведомления, которые были отправлены как ответ на полученные документы и ТК
 				ON 
 					RequestMessage.DocumentUid = ResponseMessage.DocumentUid 
@@ -229,21 +220,6 @@ INNER JOIN (
 					AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
 			) AS RegistrationMessage
 		) AS CheckMessageComplete
-		--WHERE
-		--	(CASE
-		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
-		--		THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
-		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
-		--		END 
-		--	> 0 
-		--	AND CheckMessageComplete.DateDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
-		--	OR (CASE
-		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
-		--		THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
-		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
-		--		END
-		--	<= 0 )	 
-		
 	) AS ScoreForMessage
 	RIGHT OUTER JOIN Member
 		ON Member.Guid = ScoreForMessage.Member
@@ -287,7 +263,6 @@ INNER JOIN (
 					SELECT  --RequestMessage - Зарегистрированные документы/ТК, ожидающие уведомления в период очета по каждому участнику по каждому uid  документа
 						ConfirmationControl.MessageUid
 						,ConfirmationControl.SenderGuid
-						,ConfirmationControl.MessageType
 						,ConfirmationControl.RecipientGuid
 						,MAX(DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn)) AS MaxReactedOn --если более 1 одинаковой отправки документа/ТК (одинаковые sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем максимальную дату ожидания
 					FROM ConfirmationControl 
@@ -295,19 +270,17 @@ INNER JOIN (
 						ON #tmp_ValidationLog.LogId = ConfirmationControl.ValidatingLog
 					WHERE
 						RequestCount = 1
-						AND PackageDelivaredOn >=  DATEADD(DAY, -3, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
-						AND PackageDelivaredOn < DATEADD(DAY, -2, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0'))	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
+						AND ConfirmationControl.PackageDelivaredOn >=  DATEADD(DAY, -3, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. Дата получения пакета должна быть не ранее, чем за 3 дня до отчетного периода
+						AND DATEADD(DAY, 3, ConfirmationControl.PackageDelivaredOn) <= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0')	--конец периода отчета. Дата ожидания уведомления должна быть не позже даты окончания периода отчета, иначе срок формирования уведомления попадает на следующий отчетный срок
 					GROUP BY
-						MessageUid
-						,SenderGuid
+						SenderGuid
 						,RecipientGuid
-						,MessageType
+						,MessageUid			
 				) AS RequestMessage -- выбираем документы и ТК, которые ожидают уведомления
 				LEFT OUTER JOIN (
 					SELECT --ResponseMessage - уведомления, отправленные в ответ на документы/ТК по каждому участнику и каждому uid Документа
 						MessageUid
 						,SenderGuid
-						,MessageType
 						,RecipientGuid
 						,MIN(PackageDelivaredOn) AS MinPackageDelivaredOn --если более 1 одинаковой отправки уведомления (sender, Doc.Uid и recipient появляются больше, чем в одной записи), то берем минимальную дату передачи
 					FROM 
@@ -316,33 +289,18 @@ INNER JOIN (
 						ON #tmp_ValidationLog.LogId = ConfirmationControl.ValidatingLog
 					WHERE 	
 						ResponseCount = 1
+						AND Success = 1
 					GROUP BY
-						MessageUid
-						,SenderGuid
+						SenderGuid
 						,RecipientGuid
-						,MessageType
+						,MessageUid		
 				) AS ResponseMessage -- выбираем уведомления, которые были отправлены как ответ на полученные документы и ТК
 				ON 
 					RequestMessage.MessageUid = ResponseMessage.MessageUid 
 					AND RequestMessage.SenderGuid = ResponseMessage.RecipientGuid 
 					AND RequestMessage.RecipientGuid = ResponseMessage.SenderGuid
 			) AS RegistrationMessage
-		) AS CheckMessageComplete
-		--WHERE
-		--	(CASE
-		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
-		--		THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
-		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
-		--		END 
-		--	> 0 
-		--	AND CheckMessageComplete.DateDiff is not null) --если дата и время ожидания квитанции больше текущего системного времени, но DateDiff не null, значит уведомление пришло в срок до текущего времени. Иначе не учитываем, ибо квитанция может прийти позже текущего времени, но до даты ожидания
-		--	OR (CASE
-		--		WHEN DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn)) = 0  --если даты совпадают, то сравниваем по миллисекундам
-		--		THEN DATEDIFF(MINUTE, GETDATE(), CheckMessageComplete.ControllerReactedOn)
-		--		ELSE DATEDIFF(DAY, CONVERT(DATE, GETDATE()), CONVERT(DATE, CheckMessageComplete.ControllerReactedOn))  --иначе сравниваем по дням
-		--		END
-		--	<= 0 )	 
-		
+		) AS CheckMessageComplete	
 	) AS ScoreForMessage
 	RIGHT OUTER JOIN Member
 		ON Member.Guid = ScoreForMessage.Member

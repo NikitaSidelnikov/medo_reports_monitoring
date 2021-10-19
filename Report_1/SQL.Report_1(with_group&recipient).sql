@@ -12,15 +12,10 @@ IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
 	
 CREATE TABLE #Tmp (
-					--PackageId INT PRIMARY KEY
-					--,LogId BIGINT 
 					SenderGuid char(36)
-					--,PackageXml nvarchar(255)
 					,PackageXmlVersion nvarchar(255)
-					--,ContainerXml nvarchar(255)
 					,ContainerXmlVersion nvarchar(255)
 					,Type INT
-					--,Success BIT
 )
 
 INSERT INTO #Tmp
@@ -32,13 +27,8 @@ Type =
 	4 -- “ 
 */
 SELECT --ActualPackagesWithType = обработанные пакеты с последним логом в период отчета с указанием типа пакета
-	--PackageId
-	--,LogId
-	--,Member.Guid AS MemberGuid
 	SenderGuid
-	--,PackageXml
 	,PackageXmlVersion
-	--,ContainerXml
 	,ContainerXmlVersion
 	,PackageType = CASE 
 						WHEN ConfirmationControl.MessageType = N'“ранспортный контейнер'
@@ -51,21 +41,15 @@ SELECT --ActualPackagesWithType = обработанные пакеты с последним логом в период
 							THEN 1
 						ELSE NULL
 						END
-	--,Success
 FROM(
 	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
-		ActualLog.PackageId
-		,ActualLog.Max_ValidatedOn
-		,ProcessedPackage.LogId
-		,ProcessedPackage.PackageXml
+		ProcessedPackage.LogId
 		,ProcessedPackage.PackageXmlVersion
-		,ProcessedPackage.ContainerXml
 		,ProcessedPackage.ContainerXmlVersion
-		--,ProcessedPackage.Success
 	FROM(
 		SELECT -- ActualLog = последний лог по пакету
-			ValidationLog.Package	AS PackageId
-			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
+			ValidationLog.Package				AS PackageId
+			,MAX(ValidationLog.ValidatedOn)		AS Max_ValidatedOn
 		FROM ValidationLog	
 		WHERE 
 			Success = 1
@@ -75,12 +59,9 @@ FROM(
 	INNER JOIN (
 		SELECT --ProcessedPackage = обработанные пакеты в период отчета
 			ValidationLog.Package
-			,ValidationLog.Id AS LogId
 			,ValidationLog.ValidatedOn
-			--,ValidationLog.Success
-			,PackageXml
+			,ValidationLog.Id				AS LogId
 			,PackageXmlVersion
-			,ContainerXml
 			,ContainerXmlVersion
 		FROM Package
 		INNER JOIN ValidationLog

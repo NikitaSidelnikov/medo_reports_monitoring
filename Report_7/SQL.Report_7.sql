@@ -63,31 +63,22 @@ FROM (
 	FROM (
 		SELECT --Статистика по использованию ЭП в ТК по каждому участнику
 			MemberGuid									
-			,IIF(MemberGuid is not null, COUNT(*), 0)			AS Count_ED			--Всего документов
+			,IIF(MemberGuid is not null, COUNT(*)/2, 0)			AS Count_ED			--Всего документов
 			,SUM(ES_in_ED)										AS SUM_ES_in_ED		--Всего ЭД с подписью
 			,SUM(ES_in_TC)										AS SUM_ES_in_TC		--Всего ТК с подписью
-			,SUM(CAST(ES_in_ED AS FLOAT))/COUNT(*)				AS Prop_ES_in_ED	--Доля ЭД с подписью
-			,SUM(CAST(ES_in_TC AS FLOAT))/COUNT(*)				AS Prop_ES_in_TC	--Доля ТК с подписью
+			,SUM(2.0*CAST(ES_in_ED AS FLOAT))/COUNT(*)			AS Prop_ES_in_ED	--Доля ЭД с подписью
+			,SUM(2.0*CAST(ES_in_TC AS FLOAT))/COUNT(*)			AS Prop_ES_in_TC	--Доля ТК с подписью
 		FROM (
 			SELECT --Перечень ТК использующих/не использующих ЭП
-				MemberGuid
-				,MAX(ES_in_ED) AS ES_in_ED
-				,MAX(ES_in_TC) AS ES_in_TC
-			FROM (
-				SELECT --Перечень ТК использующих/не использующих ЭП
-					Score.ValidationLog
-					,Score.MemberGuid
-					,IIF(Score.Value <> 0 and Score.Criterion = '3.13', 1, 0) AS ES_in_ED --Электронная подпись в ЭД
-					,IIF(Score.Value <> 0 and Score.Criterion = '3.14', 1, 0) AS ES_in_TC --Электронная подпись в ТК
-				FROM #Tmp 
-				INNER JOIN Score
-					ON Score.ValidationLog = #Tmp.LogId
-				WHERE 
-					Score.Criterion IN ('3.13', '3.14')
-			) AS SIG_in_ED_TC
-			GROUP BY
-				ValidationLog	
-				,MemberGuid
+				Score.ValidationLog
+				,Score.MemberGuid
+				,IIF(Score.Value <> 0 and Score.Criterion = '3.13', 1, 0) AS ES_in_ED --Электронная подпись в ЭД
+				,IIF(Score.Value <> 0 and Score.Criterion = '3.14', 1, 0) AS ES_in_TC --Электронная подпись в ТК
+			FROM #Tmp 
+			INNER JOIN Score
+				ON Score.ValidationLog = #Tmp.LogId
+			WHERE 
+				Score.Criterion IN ('3.13', '3.14')
 		) AS Using_SIG
 		GROUP BY 
 			MemberGuid

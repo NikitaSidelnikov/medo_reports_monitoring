@@ -25,7 +25,7 @@ INSERT INTO #tmp_Packages
 		FROM	
 			ValidationLog
 		WHERE 
-			Success = 1 --????
+			Success = 1
 		GROUP BY
 			Package
 	) AS ActualDates
@@ -40,8 +40,8 @@ INSERT INTO #tmp_Packages
 		INNER JOIN ValidationLog
 			ON ValidationLog.Package = Package.Id
 		WHERE
-			--Package.Incoming = 1 --только исходящие пакеты 
-			Package.Processed = 1 --только обработанные пакеты
+			Package.Incoming = 1 --только исходящие пакеты 
+			AND Package.Processed = 1 --только обработанные пакеты
 			AND Success = 1
 	) AS ReportPacks
 		ON ActualDates.Max_Package = ReportPacks.Package

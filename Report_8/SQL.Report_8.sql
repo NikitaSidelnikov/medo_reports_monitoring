@@ -3,20 +3,20 @@
 --DECLARE @DateStart DateTime2
 --DECLARE @DateEnd DateTime2
 --SET @Member = '853db228-05e8-4b45-92ee-19debef3039f'
---SET @DateStart = '2021-03-01'
---SET @DateEnd = '2021-06-01'
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-08-07'
 -------------------------------------------------------------------
 
 
-if object_id('tempdb..#tmp_ValidationLog') is not null
-	DROP TABLE #tmp_ValidationLog
+--if object_id('tempdb..#tmp_ValidationLog') is not null
+--	DROP TABLE #tmp_ValidationLog
 
-CREATE TABLE #tmp_ValidationLog (
-								LogId BIGINT NOT NULL
-							) --“аблица всех валидных последних логов
+--CREATE TABLE #tmp_ValidationLog (
+--								LogId BIGINT NOT NULL
+--							) --“аблица всех валидных последних логов
 
 
-INSERT INTO #tmp_ValidationLog  
+;with #tmp_ValidationLog  as (
 	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
 		ProcessedPackage.LogId
 	FROM(
@@ -35,10 +35,13 @@ INSERT INTO #tmp_ValidationLog
 			,ValidationLog.Id			AS LogId
 			,ValidationLog.ValidatedOn
 		FROM Package
+		--INNER JOIN Batch
+		--	ON Package.Batch = Batch.Id
 		INNER JOIN ValidationLog
 			ON ValidationLog.Package = Package.Id
 		WHERE
 			Processed = 1
+			--AND MemberGuid = @Member
 			AND Success = 1
 			AND Incoming = 0 --только исход€щие пакеты
 			AND Package.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
@@ -46,7 +49,7 @@ INSERT INTO #tmp_ValidationLog
 	) AS ProcessedPackage
 		ON ProcessedPackage.Package = ActualLog.PackageId
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
-
+	)
 
 SELECT  --AllCriterionGroupScore  --оценки выбранного лога пакета с учетом всех групп критериев
 	CriterionGroup.Object							AS CriterionGroupName

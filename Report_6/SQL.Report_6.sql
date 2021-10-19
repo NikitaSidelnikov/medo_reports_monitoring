@@ -81,24 +81,16 @@ FROM (
 	FROM (
 		SELECT --Статистика по использованию справочников в ЭД
 			MemberGuid
-			,IIF(Using_Directory.MemberGuid is not null, COUNT(*), 0)	AS Count_ED				--Всего документов
+			,IIF(Using_Directory.MemberGuid is not null, COUNT(*)/4, 0)	AS Count_ED				--Всего документов
 			,SUM(ED_Type)												AS SUM_ED_Type			--Всего ЭД с заполненным "Вид документа"
 			,SUM(ED_Signature)											AS SUM_ED_Signature		--Всего ЭД с заполненным "Гриф документа"
 			,SUM(ED_Region)												AS SUM_ED_Region		--Всего ЭД с заполненным "Регион документа"
 			,SUM(ED_Relation)											AS SUM_ED_Relation		--Всего ЭД с заполненным "Тип связи документа"
-			,SUM(CAST(ED_Type AS FLOAT))/COUNT(*)						AS Prop_ED_Type			--Доля ЭД с заполненным "Вид документа"
-			,SUM(CAST(ED_Signature AS FLOAT))/COUNT(*)					AS Prop_ED_Signature	--Доля ЭД с заполненным "Гриф документа"
-			,SUM(CAST(ED_Region AS FLOAT))/COUNT(*)						AS Prop_ED_Region		--Доля ЭД с заполненным "Регион документа"
-			,SUM(CAST(ED_Relation AS FLOAT))/COUNT(*)					AS Prop_ED_Relation		--Доля ЭД с заполненным "Тип связи документа"
+			,SUM(4.0*CAST(ED_Type AS FLOAT))/COUNT(*)						AS Prop_ED_Type			--Доля ЭД с заполненным "Вид документа"
+			,SUM(4.0*CAST(ED_Signature AS FLOAT))/COUNT(*)				AS Prop_ED_Signature	--Доля ЭД с заполненным "Гриф документа"
+			,SUM(4.0*CAST(ED_Region AS FLOAT))/COUNT(*)					AS Prop_ED_Region		--Доля ЭД с заполненным "Регион документа"
+			,SUM(4.0*CAST(ED_Relation AS FLOAT))/COUNT(*)					AS Prop_ED_Relation		--Доля ЭД с заполненным "Тип связи документа"
 		FROM (
-			SELECT --Перечень ЭД с признаком использования справочников (отформатированная таблица)
-				ValidationLog
-				,MemberGuid
-				,MAX(ED_Type)		AS ED_Type
-				,MAX(ED_Signature)	AS ED_Signature
-				,MAX(ED_Region)		AS ED_Region
-				,MAX(ED_Relation)	AS ED_Relation
-			FROM (
 				SELECT --Перечень ЭД с признаком использования справочников
 					Score.ValidationLog
 					,Score.MemberGuid
@@ -111,10 +103,6 @@ FROM (
 					ON Score.ValidationLog = #Tmp.LogId
 				WHERE 
 					Score.Criterion IN ('3.6', '3.7', '3.8', '3.11')
-			) AS ED_Directory
-			GROUP BY
-				MemberGuid		
-				,ValidationLog
 		) AS Using_Directory
 		GROUP BY 
 			MemberGuid

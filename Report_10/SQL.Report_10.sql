@@ -41,8 +41,8 @@ INSERT INTO #tmp_Packages
 		INNER JOIN ValidationLog
 			ON ValidationLog.Package = Package.Id
 		WHERE
-			--Package.Incoming = 1 --только исходящие пакеты 
-			Package.Processed = 1 --только обработанные пакеты
+			Package.Incoming = 1 --только исходящие пакеты 
+			AND Package.Processed = 1 --только обработанные пакеты
 			AND Success = 1
 	) AS ReportPacks
 		ON ActualDates.Max_Package = ReportPacks.Package
@@ -102,16 +102,17 @@ INSERT INTO #tmp
 					,SUM(IIF(VersionControl.VersionED = '2.7.1', 1, 0)) AS CountNewVersionED
 				FROM (
 					SELECT  -- VersionControl = Все коммуникации MemberY и MemberX в период отчета по ЭД с указанием версии ЭД
-						ConfirmationControl.SenderGuid		AS MemberY		--отправитель
-						,ConfirmationControl.RecipientGuid	AS MemberX	--получатель
+						SenderGuid		AS MemberY		--отправитель
+						,RecipientGuid	AS MemberX	--получатель
 						,#tmp_Packages.ContainerXmlVersion	AS VersionED
 					FROM	
-						ConfirmationControl	
+						RegistrationControl
 					INNER JOIN #tmp_Packages
-						ON #tmp_Packages.LogId = ConfirmationControl.ValidatingLog
+						ON #tmp_Packages.LogId = ValidatingLog
 					WHERE 	
-						ConfirmationControl.PackageDelivaredOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-						AND ConfirmationControl.PackageDelivaredOn < DATEADD(DAY, 1, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0')) --конец периода отчета
+						RequestCount = 1
+						AND PackageDelivaredOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
+						AND PackageDelivaredOn < DATEADD(DAY, 1, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0')) --конец периода отчета
 				) AS VersionControl
 				GROUP BY
 					VersionControl.MemberY

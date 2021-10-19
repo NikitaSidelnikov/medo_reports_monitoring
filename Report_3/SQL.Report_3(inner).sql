@@ -17,7 +17,7 @@ IF OBJECT_ID('tempdb..#ScoreNotifications') is not null
 CREATE TABLE #tmp_Packages (
 							LogId BIGINT
 							,PackageId INT
-							,ReceivedOn DATETIME2(7) NULL
+							,Success BIT
 						)
 CREATE TABLE #ScoreReceipt (
 							PackageIdR INT
@@ -43,15 +43,13 @@ INSERT INTO #tmp_Packages
 	SELECT -- ActualLogs = актуальные пакеты с последним логом
 		ReportPacks.LogId
 		,ReportPacks.Id			AS PackageId
-		,ReportPacks.ReceivedOn
+		,ReportPacks.Success
 	FROM (
 		SELECT -- ActualDates = актуальные даты логов пакетов. ≈сли логи по пакету мен€лись, то берем последний обработанный лог
 			Package AS Max_Package
 			,MAX(ValidatedOn)	AS Max_ValidatedOn
 		FROM	
 			ValidationLog
-		WHERE 
-			Success = 1 --????
 		GROUP BY
 			Package
 	) AS ActualDates
@@ -61,13 +59,13 @@ INSERT INTO #tmp_Packages
 			,Package.Id
 			,Package.ValidatedOn
 			,Package.ReceivedOn
+			,ValidationLog.Success
 		FROM
 			Package
 		INNER JOIN ValidationLog
 			ON ValidationLog.Package = Package.Id
 		WHERE
 			Package.Processed = 1 --только обработанные пакеты
-			AND Success = 1 --????
 	) AS ReportPacks
 		ON ActualDates.Max_Package = ReportPacks.Id
 		AND ActualDates.Max_ValidatedOn = ReportPacks.ValidatedOn
@@ -163,6 +161,7 @@ INSERT INTO #ScoreReceipt
 			ON #tmp_Packages.LogId = AllResponseMessage.ValidatingLog
 		WHERE
 			AllResponseMessage.MinResponseDelivaredOn = AllResponseMessage.ResponseDelivaredOn
+			AND Success = 1
 		GROUP BY				
 			AllResponseMessage.MessageUid
 			,AllResponseMessage.SenderGuid
@@ -252,6 +251,7 @@ INSERT INTO #ScoreNotifications
 			AND AllRequestMessage.PackageDelivaredOn >=  DATEADD(DAY, -5, DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0')) --начало периода отчета. ƒата получени€ пакета должна быть не ранее, чем за 3 дн€ до отчетного периода
 			AND AllRequestMessage.PackageDelivaredOn < DATEADD(DAY, -4, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0'))	--конец периода отчета. ƒата ожидани€ уведомлени€ должна быть не позже даты окончани€ периода отчета, иначе срок формировани€ уведомлени€ попадает на следующий отчетный срок
 			AND AllRequestMessage.PackageDelivaredOn = AllRequestMessage.MinPackageDelivaredOn
+			AND Success = 1
 		GROUP BY
 			AllRequestMessage.DocumentUid 
 			,AllRequestMessage.SenderGuid
@@ -289,6 +289,7 @@ INSERT INTO #ScoreNotifications
 			ON #tmp_Packages.LogId = AllResponseMessage.ValidatingLog
 		WHERE
 			AllResponseMessage.ResponseDelivaredOn = AllResponseMessage.MinResponseDelivaredOn
+			AND Success = 1
 		GROUP BY 			
 			AllResponseMessage.DocumentUid
 			,AllResponseMessage.SenderGuid

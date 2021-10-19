@@ -2,21 +2,12 @@
 --DECLARE @DateStart DateTime2
 --DECLARE @DateEnd DateTime2
 --DECLARE @Member nvarchar(255)
---SET @DateStart = '2021-04-01'
+--SET @DateStart = '2021-01-01'
 --SET @DateEnd = '2021-06-01'
---SET @Member = 'ecc99082-f3b4-4028-8007-a7f69d6cd1d7' --АО ДОМ.РФ
+--SET @Member = 'ecc99082-f3b4-4028-8007-a7f69d6cd1d7'; --АО ДОМ.РФ
 -------------------------------------------------------------------
 
-IF OBJECT_ID('tempdb..#Tmp') is not null
-	DROP TABLE #Tmp
-
-CREATE TABLE #Tmp (
-					PackageId INT
-					,LogId BIGINT
-					,ReceivedOn Datetime2 (7)
-)
-
-INSERT INTO #Tmp
+WITH #Tmp AS (
 	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
 		ActualLog.PackageId
 		,ProcessedPackage.LogId
@@ -38,10 +29,13 @@ INSERT INTO #Tmp
 			,ValidationLog.ValidatedOn
 			,Package.ReceivedOn
 		FROM Package
+		--INNER JOIN Batch
+		--	ON Package.Batch = Batch.Id
 		INNER JOIN ValidationLog
 			ON ValidationLog.Package = Package.Id
 		WHERE
 			Processed = 1
+		--	AND MemberGuid = @Member
 			AND Success = 1
 			AND Incoming = 0 --только исходящие пакеты
 			AND Package.ReceivedOn >=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
@@ -49,7 +43,7 @@ INSERT INTO #Tmp
 	) AS ProcessedPackage
 		ON ProcessedPackage.Package = ActualLog.PackageId
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
-
+)
 
 
 SELECT --Перечень ТК использующих/не использующих ЭП (отформатированная таблица)
