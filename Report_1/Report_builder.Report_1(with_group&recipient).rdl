@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Report xmlns:rd="http://schemas.microsoft.com/SQLServer/reporting/reportdesigner" xmlns:cl="http://schemas.microsoft.com/sqlserver/reporting/2010/01/componentdefinition" xmlns="http://schemas.microsoft.com/sqlserver/reporting/2010/01/reportdefinition">
+<Report xmlns="http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition" xmlns:rd="http://schemas.microsoft.com/SQLServer/reporting/reportdesigner">
   <AutoRefresh>0</AutoRefresh>
   <DataSources>
     <DataSource Name="MedonomFull">
@@ -41,15 +41,10 @@ IF OBJECT_ID('tempdb..#Tmp') is not null
 	DROP TABLE #Tmp
 	
 CREATE TABLE #Tmp (
-					--PackageId INT PRIMARY KEY
-					--,LogId BIGINT 
 					SenderGuid char(36)
-					--,PackageXml nvarchar(255)
 					,PackageXmlVersion nvarchar(255)
-					--,ContainerXml nvarchar(255)
 					,ContainerXmlVersion nvarchar(255)
 					,Type INT
-					--,Success BIT
 )
 
 INSERT INTO #Tmp
@@ -61,13 +56,8 @@ Type =
 	4 -- ТК
 */
 SELECT --ActualPackagesWithType = обработанные пакеты с последним логом в период отчета с указанием типа пакета
-	--PackageId
-	--,LogId
-	--,Member.Guid AS MemberGuid
 	SenderGuid
-	--,PackageXml
 	,PackageXmlVersion
-	--,ContainerXml
 	,ContainerXmlVersion
 	,PackageType = CASE 
 						WHEN ConfirmationControl.MessageType = N'Транспортный контейнер'
@@ -80,21 +70,15 @@ SELECT --ActualPackagesWithType = обработанные пакеты с по�
 							THEN 1
 						ELSE NULL
 						END
-	--,Success
 FROM(
 	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
-		ActualLog.PackageId
-		,ActualLog.Max_ValidatedOn
-		,ProcessedPackage.LogId
-		,ProcessedPackage.PackageXml
+		ProcessedPackage.LogId
 		,ProcessedPackage.PackageXmlVersion
-		,ProcessedPackage.ContainerXml
 		,ProcessedPackage.ContainerXmlVersion
-		--,ProcessedPackage.Success
 	FROM(
 		SELECT -- ActualLog = последний лог по пакету
-			ValidationLog.Package	AS PackageId
-			,MAX(ValidationLog.ValidatedOn)	AS Max_ValidatedOn
+			ValidationLog.Package				AS PackageId
+			,MAX(ValidationLog.ValidatedOn)		AS Max_ValidatedOn
 		FROM ValidationLog	
 		WHERE 
 			Success = 1
@@ -104,12 +88,9 @@ FROM(
 	INNER JOIN (
 		SELECT --ProcessedPackage = обработанные пакеты в период отчета
 			ValidationLog.Package
-			,ValidationLog.Id AS LogId
 			,ValidationLog.ValidatedOn
-			--,ValidationLog.Success
-			,PackageXml
+			,ValidationLog.Id				AS LogId
 			,PackageXmlVersion
-			,ContainerXml
 			,ContainerXmlVersion
 		FROM Package
 		INNER JOIN ValidationLog
@@ -126,7 +107,7 @@ INNER JOIN ConfirmationControl
 WHERE
 	ConfirmationControl.RecipientGuid = @Recipient
 	AND ConfirmationControl.PackageDelivaredOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-	AND ConfirmationControl.PackageDelivaredOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
+	AND ConfirmationControl.PackageDelivaredOn &lt; DATEADD(DAY, 1, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0'))
 						
 
 SELECT
@@ -3272,6 +3253,29 @@ order by name asc</CommandText>
       </ValidValues>
     </ReportParameter>
   </ReportParameters>
+  <ReportParametersLayout>
+    <GridLayoutDefinition>
+      <NumberOfColumns>2</NumberOfColumns>
+      <NumberOfRows>2</NumberOfRows>
+      <CellDefinitions>
+        <CellDefinition>
+          <ColumnIndex>0</ColumnIndex>
+          <RowIndex>0</RowIndex>
+          <ParameterName>DateStart</ParameterName>
+        </CellDefinition>
+        <CellDefinition>
+          <ColumnIndex>1</ColumnIndex>
+          <RowIndex>0</RowIndex>
+          <ParameterName>DateEnd</ParameterName>
+        </CellDefinition>
+        <CellDefinition>
+          <ColumnIndex>0</ColumnIndex>
+          <RowIndex>1</RowIndex>
+          <ParameterName>Recipient</ParameterName>
+        </CellDefinition>
+      </CellDefinitions>
+    </GridLayoutDefinition>
+  </ReportParametersLayout>
   <Language>ru-RU</Language>
   <rd:ReportUnitType>Cm</rd:ReportUnitType>
   <rd:ReportID>ef08f9e6-2644-4f0e-adcd-4a3dcade83a8</rd:ReportID>

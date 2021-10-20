@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Report xmlns:rd="http://schemas.microsoft.com/SQLServer/reporting/reportdesigner" xmlns:cl="http://schemas.microsoft.com/sqlserver/reporting/2010/01/componentdefinition" xmlns="http://schemas.microsoft.com/sqlserver/reporting/2010/01/reportdefinition">
+<Report xmlns="http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition" xmlns:rd="http://schemas.microsoft.com/SQLServer/reporting/reportdesigner">
   <AutoRefresh>0</AutoRefresh>
   <DataSources>
     <DataSource Name="DataSource1">
@@ -27,25 +27,25 @@
             <Value>=Parameters!Member.Value</Value>
           </QueryParameter>
         </QueryParameters>
-        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+        <CommandText>---------------------------ѕј–јћ≈“–џ-------------------------------
 --DECLARE @Member CHAR(36)
 --DECLARE @DateStart DateTime2
 --DECLARE @DateEnd DateTime2
 --SET @Member = '853db228-05e8-4b45-92ee-19debef3039f'
---SET @DateStart = '2021-03-01'
---SET @DateEnd = '2021-06-01'
+--SET @DateStart = '2021-04-01'
+--SET @DateEnd = '2021-08-07'
 -------------------------------------------------------------------
 
 
-if object_id('tempdb..#tmp_ValidationLog') is not null
-	DROP TABLE #tmp_ValidationLog
+--if object_id('tempdb..#tmp_ValidationLog') is not null
+--	DROP TABLE #tmp_ValidationLog
 
-CREATE TABLE #tmp_ValidationLog (
-								LogId BIGINT NOT NULL
-							) --Таблица всех валидных последних логов
+--CREATE TABLE #tmp_ValidationLog (
+--								LogId BIGINT NOT NULL
+--							) --“аблица всех валидных последних логов
 
 
-INSERT INTO #tmp_ValidationLog  
+;with #tmp_ValidationLog  as (
 	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
 		ProcessedPackage.LogId
 	FROM(
@@ -64,18 +64,21 @@ INSERT INTO #tmp_ValidationLog
 			,ValidationLog.Id			AS LogId
 			,ValidationLog.ValidatedOn
 		FROM Package
+		--INNER JOIN Batch
+		--	ON Package.Batch = Batch.Id
 		INNER JOIN ValidationLog
 			ON ValidationLog.Package = Package.Id
 		WHERE
 			Processed = 1
+			--AND MemberGuid = @Member
 			AND Success = 1
-			AND Incoming = 0 --только исходящие пакеты
+			AND Incoming = 0 --только исход¤щие пакеты
 			AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-			AND Package.ReceivedOn &lt; DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --окончание периода отчета
+			AND Package.ReceivedOn &lt; DATEADD(DAY, 1, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0')) --конец периода отчета
 	) AS ProcessedPackage
 		ON ProcessedPackage.Package = ActualLog.PackageId
 		AND ProcessedPackage.ValidatedOn = ActualLog.Max_ValidatedOn
-
+	)
 
 SELECT  --AllCriterionGroupScore  --оценки выбранного лога пакета с учетом всех групп критериев
 	CriterionGroup.Object							AS CriterionGroupName
@@ -100,7 +103,9 @@ FROM (
 RIGHT JOIN Criterion
 	ON Criterion.Code = ScoreLog.Criterion
 INNER JOIN CriterionGroup
-	ON Criterion.CriterionGroup = CriterionGroup.Id</CommandText>
+	ON Criterion.CriterionGroup = CriterionGroup.Id
+
+</CommandText>
         <rd:UseGenericDesigner>true</rd:UseGenericDesigner>
       </Query>
       <Fields>
@@ -166,7 +171,7 @@ ORDER BY Member.Name ASC</CommandText>
             <Value>=Parameters!DateEnd.Value</Value>
           </QueryParameter>
         </QueryParameters>
-        <CommandText>---------------------------ПАРАМЕТРЫ-------------------------------
+        <CommandText>---------------------------ѕј–јћ≈“–џ-------------------------------
 --DECLARE @Member CHAR(36)
 --DECLARE @DateStart DateTime2
 --DECLARE @DateEnd DateTime2
@@ -175,7 +180,7 @@ ORDER BY Member.Name ASC</CommandText>
 --SET @DateEnd = '2021-06-01'
 -------------------------------------------------------------------
 
-SELECT --Кол-во валидных и обработанных пакетов в период отчета по участнику
+SELECT -- ол-во валидных и обработанных пакетов в период отчета по участнику
 	COUNT(*) AS PackagesCount
 FROM (
 	SELECT -- ActualPackages - последние актуальные пакеты
@@ -207,11 +212,12 @@ FROM (
 			AND Incoming = 0
 			AND Batch.MemberGuid = @Member
 			AND Package.ReceivedOn &gt;=  DATETIMEFROMPARTS(DATEPART(YEAR, @DateStart), DATEPART(MONTH, @DateStart), DATEPART(DAY, @DateStart), '0', '0', '0', '0') --начало периода отчета
-			AND Package.ReceivedOn &lt;= DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '23', '59', '59', '0') --конец периода отчета
+			AND Package.ReceivedOn &lt; DATEADD(DAY, 1, DATETIMEFROMPARTS(DATEPART(YEAR, @DateEnd), DATEPART(MONTH, @DateEnd), DATEPART(DAY, @DateEnd), '0', '0', '0', '0')) --конец периода отчета
 	) AS SuccesLogs
 		ON SuccesLogs.Package = SuccesDate.Package
 		AND SuccesLogs.ValidatedOn = SuccesDate.MaxValidatedOn
-) AS Pack_Count</CommandText>
+) AS Pack_Count
+</CommandText>
       </Query>
       <Fields>
         <Field Name="PackagesCount">
@@ -1452,6 +1458,29 @@ FROM (
       </ValidValues>
     </ReportParameter>
   </ReportParameters>
+  <ReportParametersLayout>
+    <GridLayoutDefinition>
+      <NumberOfColumns>2</NumberOfColumns>
+      <NumberOfRows>2</NumberOfRows>
+      <CellDefinitions>
+        <CellDefinition>
+          <ColumnIndex>0</ColumnIndex>
+          <RowIndex>0</RowIndex>
+          <ParameterName>DateStart</ParameterName>
+        </CellDefinition>
+        <CellDefinition>
+          <ColumnIndex>1</ColumnIndex>
+          <RowIndex>0</RowIndex>
+          <ParameterName>DateEnd</ParameterName>
+        </CellDefinition>
+        <CellDefinition>
+          <ColumnIndex>0</ColumnIndex>
+          <RowIndex>1</RowIndex>
+          <ParameterName>Member</ParameterName>
+        </CellDefinition>
+      </CellDefinitions>
+    </GridLayoutDefinition>
+  </ReportParametersLayout>
   <rd:ReportUnitType>Cm</rd:ReportUnitType>
   <rd:ReportID>21b49ffa-40d0-41df-b8a2-4c5852e84d34</rd:ReportID>
 </Report>
