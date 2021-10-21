@@ -573,7 +573,7 @@ FROM (
                             <Paragraph>
                               <TextRuns>
                                 <TextRun>
-                                  <Value>=Fields!MemberName.Value</Value>
+                                  <Value>=Fields!Name.Value</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
                                     <Color>#4d4d4d</Color>
@@ -583,7 +583,7 @@ FROM (
                               <Style />
                             </Paragraph>
                           </Paragraphs>
-                          <rd:DefaultName>MemberName</rd:DefaultName>
+                          <rd:DefaultName>Name</rd:DefaultName>
                           <Style>
                             <Border>
                               <Color>#4e648a</Color>
@@ -1336,9 +1336,9 @@ FROM (
                       <KeepWithGroup>After</KeepWithGroup>
                     </TablixMember>
                     <TablixMember>
-                      <Group Name="MemberName">
+                      <Group Name="Name">
                         <GroupExpressions>
-                          <GroupExpression>=Fields!MemberName.Value</GroupExpression>
+                          <GroupExpression>=Fields!Name.Value</GroupExpression>
                         </GroupExpressions>
                       </Group>
                       <SortExpressions>
@@ -1346,7 +1346,7 @@ FROM (
                           <Value>=Fields!Rank.Value</Value>
                         </SortExpression>
                         <SortExpression>
-                          <Value>=Fields!MemberName.Value</Value>
+                          <Value>=Fields!Name.Value</Value>
                         </SortExpression>
                       </SortExpressions>
                       <TablixMembers>
@@ -1369,7 +1369,7 @@ FROM (
                 <Value>=Fields!Rating.Value</Value>
               </SortExpression>
               <SortExpression>
-                <Value>=Fields!MemberName.Value</Value>
+                <Value>=Fields!Name.Value</Value>
               </SortExpression>
             </SortExpressions>
             <Top>18.27666mm</Top>
