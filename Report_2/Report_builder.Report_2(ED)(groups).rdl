@@ -311,74 +311,6 @@ FROM (
               <PaddingBottom>2pt</PaddingBottom>
             </Style>
           </Textbox>
-          <Textbox Name="DataStart">
-            <CanGrow>true</CanGrow>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
-                    <Style>
-                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
-                    </Style>
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Left</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>DataStart</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>40.46235mm</Left>
-            <Height>6mm</Height>
-            <Width>31.57305mm</Width>
-            <ZIndex>1</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
-          <Textbox Name="DataEnd">
-            <CanGrow>true</CanGrow>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)), "dd MMMM yyyy")</Value>
-                    <Style>
-                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
-                    </Style>
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Left</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>79.83748mm</Left>
-            <Height>6mm</Height>
-            <Width>65.57461mm</Width>
-            <ZIndex>2</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
           <Textbox Name="Textbox59">
             <CanGrow>true</CanGrow>
             <KeepTogether>true</KeepTogether>
@@ -400,7 +332,7 @@ FROM (
             <Left>0mm</Left>
             <Height>6mm</Height>
             <Width>35.57068mm</Width>
-            <ZIndex>3</ZIndex>
+            <ZIndex>1</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -418,12 +350,30 @@ FROM (
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>c</Value>
+                    <Value>c </Value>
                     <Style />
+                  </TextRun>
+                  <TextRun>
+                    <Value>=Parameters!DateStart.Value</Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
+                  </TextRun>
+                  <TextRun>
+                    <Value>  по </Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
+                  </TextRun>
+                  <TextRun>
+                    <Value>=DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value))</Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
                   </TextRun>
                 </TextRuns>
                 <Style>
-                  <TextAlign>Right</TextAlign>
+                  <TextAlign>Left</TextAlign>
                 </Style>
               </Paragraph>
             </Paragraphs>
@@ -431,8 +381,8 @@ FROM (
             <Top>11.92389mm</Top>
             <Left>35.57068mm</Left>
             <Height>6mm</Height>
-            <Width>4.89167mm</Width>
-            <ZIndex>4</ZIndex>
+            <Width>109.84141mm</Width>
+            <ZIndex>2</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -2050,45 +2000,13 @@ FROM (
             <Left>0mm</Left>
             <Height>29.82123mm</Height>
             <Width>293.41209mm</Width>
-            <ZIndex>5</ZIndex>
+            <ZIndex>3</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
               </Border>
             </Style>
           </Tablix>
-          <Textbox Name="Textbox62">
-            <CanGrow>true</CanGrow>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>по</Value>
-                    <Style />
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Right</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>72.0354mm</Left>
-            <Height>6mm</Height>
-            <Width>7.80208mm</Width>
-            <ZIndex>6</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
           <Textbox Name="Textbox61">
             <CanGrow>true</CanGrow>
             <KeepTogether>true</KeepTogether>
@@ -2110,75 +2028,7 @@ FROM (
             <Left>0mm</Left>
             <Height>6mm</Height>
             <Width>35.57068mm</Width>
-            <ZIndex>7</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
-          <Textbox Name="DataStart2">
-            <CanGrow>true</CanGrow>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>=Format(Parameters!DateStartCompare.Value, "dd MMMM yyyy")</Value>
-                    <Style>
-                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
-                    </Style>
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Left</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>DataStart</rd:DefaultName>
-            <Top>17.92389mm</Top>
-            <Left>40.46235mm</Left>
-            <Height>6mm</Height>
-            <Width>31.57305mm</Width>
-            <ZIndex>8</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
-          <Textbox Name="DataEnd2">
-            <CanGrow>true</CanGrow>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEndCompare.Value)), "dd MMMM yyyy")</Value>
-                    <Style>
-                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
-                    </Style>
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Left</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>17.92389mm</Top>
-            <Left>79.83748mm</Left>
-            <Height>6mm</Height>
-            <Width>65.57461mm</Width>
-            <ZIndex>9</ZIndex>
+            <ZIndex>4</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -2196,12 +2046,30 @@ FROM (
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>c</Value>
+                    <Value>c </Value>
                     <Style />
+                  </TextRun>
+                  <TextRun>
+                    <Value>=Parameters!DateStartCompare.Value</Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
+                  </TextRun>
+                  <TextRun>
+                    <Value>  по </Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
+                  </TextRun>
+                  <TextRun>
+                    <Value>=DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEndCompare.Value))</Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
                   </TextRun>
                 </TextRuns>
                 <Style>
-                  <TextAlign>Right</TextAlign>
+                  <TextAlign>Left</TextAlign>
                 </Style>
               </Paragraph>
             </Paragraphs>
@@ -2209,40 +2077,8 @@ FROM (
             <Top>17.92389mm</Top>
             <Left>35.57068mm</Left>
             <Height>6mm</Height>
-            <Width>4.89167mm</Width>
-            <ZIndex>10</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
-          <Textbox Name="Textbox65">
-            <CanGrow>true</CanGrow>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>по</Value>
-                    <Style />
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Right</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>17.92389mm</Top>
-            <Left>72.0354mm</Left>
-            <Height>6mm</Height>
-            <Width>7.80208mm</Width>
-            <ZIndex>11</ZIndex>
+            <Width>109.84141mm</Width>
+            <ZIndex>5</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>

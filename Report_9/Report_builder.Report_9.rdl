@@ -144,7 +144,7 @@ ORDER BY Name </CommandText>
 -------------------------------------------------------------------
 
 SELECT 
-	CONCAT(N'є', Packages.Id, N' от ', FORMAT(Packages.ReceivedOn, 'dd.MM.yyyy')) AS PackageId
+	CONCAT(N'№', Packages.Id, N' от ', FORMAT(Packages.ReceivedOn, 'dd.MM.yyyy')) AS PackageId
 	,Packages.LogId
 FROM (
 	SELECT --ActualPackages = обработанные пакеты с последним логом в период отчета
@@ -186,8 +186,7 @@ INNER JOIN Batch
 	ON Packages.Batch = Batch.Id --находим Member через Batch
 WHERE 
 	Batch.MemberGuid = @Member
-ORDER BY PackageId				
-</CommandText>
+ORDER BY PackageId				</CommandText>
       </Query>
       <Fields>
         <Field Name="PackageId">
@@ -1177,43 +1176,6 @@ ORDER BY PackageId
               </Border>
             </Style>
           </Tablix>
-          <Textbox Name="DataEnd">
-            <CanGrow>true</CanGrow>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)), "dd MMMM yyyy")</Value>
-                    <Style>
-                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
-                    </Style>
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Left</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>71.70418mm</Left>
-            <Height>6mm</Height>
-            <Width>32.66458mm</Width>
-            <ZIndex>2</ZIndex>
-            <Visibility>
-              <Hidden>=IsNothing(Parameters!DateEnd.Value)</Hidden>
-            </Visibility>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
           <Textbox Name="Textbox61">
             <CanGrow>true</CanGrow>
             <KeepTogether>true</KeepTogether>
@@ -1221,44 +1183,25 @@ ORDER BY PackageId
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>с</Value>
+                    <Value>c </Value>
                     <Style />
                   </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Right</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>30.02708mm</Left>
-            <Height>6mm</Height>
-            <Width>4.15521mm</Width>
-            <ZIndex>3</ZIndex>
-            <Visibility>
-              <Hidden>=IsNothing(Parameters!DateStart.Value)</Hidden>
-            </Visibility>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
-          <Textbox Name="DataStart">
-            <CanGrow>true</CanGrow>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
                   <TextRun>
-                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
+                    <Value>=Parameters!DateStart.Value</Value>
                     <Style>
-                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
+                      <Format>D</Format>
+                    </Style>
+                  </TextRun>
+                  <TextRun>
+                    <Value>  по </Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
+                  </TextRun>
+                  <TextRun>
+                    <Value>=DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value))</Value>
+                    <Style>
+                      <Format>D</Format>
                     </Style>
                   </TextRun>
                 </TextRuns>
@@ -1267,12 +1210,12 @@ ORDER BY PackageId
                 </Style>
               </Paragraph>
             </Paragraphs>
-            <rd:DefaultName>DataStart</rd:DefaultName>
+            <rd:DefaultName>Textbox60</rd:DefaultName>
             <Top>11.92389mm</Top>
-            <Left>34.18229mm</Left>
+            <Left>30.02708mm</Left>
             <Height>6mm</Height>
-            <Width>31.56433mm</Width>
-            <ZIndex>4</ZIndex>
+            <Width>74.34168mm</Width>
+            <ZIndex>2</ZIndex>
             <Visibility>
               <Hidden>=IsNothing(Parameters!DateStart.Value)</Hidden>
             </Visibility>
@@ -1309,44 +1252,9 @@ ORDER BY PackageId
             <Left>0mm</Left>
             <Height>6mm</Height>
             <Width>30.02708mm</Width>
-            <ZIndex>5</ZIndex>
+            <ZIndex>3</ZIndex>
             <Visibility>
               <Hidden>=(IsNothing(Parameters!DateEnd.Value)) AND (IsNothing(Parameters!DateStart.Value))</Hidden>
-            </Visibility>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
-          <Textbox Name="Textbox63">
-            <CanGrow>true</CanGrow>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>по</Value>
-                    <Style />
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Right</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>Textbox59</rd:DefaultName>
-            <Top>11.92389mm</Top>
-            <Left>65.74662mm</Left>
-            <Height>6mm</Height>
-            <Width>5.95756mm</Width>
-            <ZIndex>6</ZIndex>
-            <Visibility>
-              <Hidden>=IsNothing(Parameters!DateEnd.Value)</Hidden>
             </Visibility>
             <Style>
               <Border>
@@ -1379,7 +1287,7 @@ ORDER BY PackageId
             <Left>30.02708mm</Left>
             <Height>6mm</Height>
             <Width>74.34168mm</Width>
-            <ZIndex>7</ZIndex>
+            <ZIndex>4</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -1413,7 +1321,7 @@ ORDER BY PackageId
             <Left>0mm</Left>
             <Height>6mm</Height>
             <Width>30.02708mm</Width>
-            <ZIndex>8</ZIndex>
+            <ZIndex>5</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -1447,7 +1355,7 @@ ORDER BY PackageId
             <Left>30.02708mm</Left>
             <Height>6mm</Height>
             <Width>74.34168mm</Width>
-            <ZIndex>9</ZIndex>
+            <ZIndex>6</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -1481,7 +1389,7 @@ ORDER BY PackageId
             <Left>0mm</Left>
             <Height>6mm</Height>
             <Width>30.02708mm</Width>
-            <ZIndex>10</ZIndex>
+            <ZIndex>7</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>

@@ -293,109 +293,6 @@ FROM Member </CommandText>
               <PaddingBottom>2pt</PaddingBottom>
             </Style>
           </Textbox>
-          <Textbox Name="DataEnd">
-            <CanGrow>true</CanGrow>
-            <CanShrink>true</CanShrink>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)), "dd MMMM yyyy")</Value>
-                    <Style>
-                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
-                    </Style>
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Left</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>11.76107mm</Top>
-            <Left>71.18878mm</Left>
-            <Height>6mm</Height>
-            <Width>31.56433mm</Width>
-            <ZIndex>1</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
-          <Textbox Name="Textbox61">
-            <CanGrow>true</CanGrow>
-            <CanShrink>true</CanShrink>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>по</Value>
-                    <Style />
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Right</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>11.76107mm</Top>
-            <Left>64.47025mm</Left>
-            <Height>6mm</Height>
-            <Width>6.71852mm</Width>
-            <ZIndex>2</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
-          <Textbox Name="DataStart">
-            <CanGrow>true</CanGrow>
-            <CanShrink>true</CanShrink>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
-                    <Style>
-                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
-                    </Style>
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Left</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>DataStart</rd:DefaultName>
-            <Top>11.76107mm</Top>
-            <Left>32.90592mm</Left>
-            <Height>6mm</Height>
-            <Width>31.56433mm</Width>
-            <ZIndex>3</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
           <Textbox Name="Textbox60">
             <CanGrow>true</CanGrow>
             <CanShrink>true</CanShrink>
@@ -404,12 +301,30 @@ FROM Member </CommandText>
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>с</Value>
+                    <Value>c </Value>
                     <Style />
+                  </TextRun>
+                  <TextRun>
+                    <Value>=Parameters!DateStart.Value</Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
+                  </TextRun>
+                  <TextRun>
+                    <Value>  по </Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
+                  </TextRun>
+                  <TextRun>
+                    <Value>=DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value))</Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
                   </TextRun>
                 </TextRuns>
                 <Style>
-                  <TextAlign>Right</TextAlign>
+                  <TextAlign>Left</TextAlign>
                 </Style>
               </Paragraph>
             </Paragraphs>
@@ -417,8 +332,8 @@ FROM Member </CommandText>
             <Top>11.76107mm</Top>
             <Left>28.96875mm</Left>
             <Height>6mm</Height>
-            <Width>3.93717mm</Width>
-            <ZIndex>4</ZIndex>
+            <Width>193.33117mm</Width>
+            <ZIndex>1</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -451,7 +366,7 @@ FROM Member </CommandText>
             <Left>0.00001mm</Left>
             <Height>6mm</Height>
             <Width>28.96874mm</Width>
-            <ZIndex>5</ZIndex>
+            <ZIndex>2</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -1092,7 +1007,7 @@ FROM Member </CommandText>
             <Top>2.44666cm</Top>
             <Height>7.67cm</Height>
             <Width>9.27cm</Width>
-            <ZIndex>6</ZIndex>
+            <ZIndex>3</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -1120,8 +1035,8 @@ FROM Member </CommandText>
             <Top>17.76107mm</Top>
             <Left>28.96874mm</Left>
             <Height>6mm</Height>
-            <Width>73.78437mm</Width>
-            <ZIndex>7</ZIndex>
+            <Width>193.33118mm</Width>
+            <ZIndex>4</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -1154,7 +1069,7 @@ FROM Member </CommandText>
             <Left>0mm</Left>
             <Height>6mm</Height>
             <Width>28.96874mm</Width>
-            <ZIndex>8</ZIndex>
+            <ZIndex>5</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>

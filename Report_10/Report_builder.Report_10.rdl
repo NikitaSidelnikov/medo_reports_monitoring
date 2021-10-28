@@ -266,109 +266,6 @@ WHERE Active = 1</CommandText>
               <PaddingBottom>2pt</PaddingBottom>
             </Style>
           </Textbox>
-          <Textbox Name="DataEnd">
-            <CanGrow>true</CanGrow>
-            <CanShrink>true</CanShrink>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>=Format(DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value)), "dd MMMM yyyy")</Value>
-                    <Style>
-                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
-                    </Style>
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Left</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>DataEnd</rd:DefaultName>
-            <Top>11.76107mm</Top>
-            <Left>71.18877mm</Left>
-            <Height>6mm</Height>
-            <Width>31.56433mm</Width>
-            <ZIndex>1</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
-          <Textbox Name="Textbox61">
-            <CanGrow>true</CanGrow>
-            <CanShrink>true</CanShrink>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>по</Value>
-                    <Style />
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Right</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>Textbox60</rd:DefaultName>
-            <Top>11.76107mm</Top>
-            <Left>64.47024mm</Left>
-            <Height>6mm</Height>
-            <Width>6.71852mm</Width>
-            <ZIndex>2</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
-          <Textbox Name="DataStart">
-            <CanGrow>true</CanGrow>
-            <CanShrink>true</CanShrink>
-            <KeepTogether>true</KeepTogether>
-            <Paragraphs>
-              <Paragraph>
-                <TextRuns>
-                  <TextRun>
-                    <Value>=Format(Parameters!DateStart.Value, "dd MMMM yyyy")</Value>
-                    <Style>
-                      <Format>d MMMM yyyy 'г.' H:mm:ss</Format>
-                    </Style>
-                  </TextRun>
-                </TextRuns>
-                <Style>
-                  <TextAlign>Left</TextAlign>
-                </Style>
-              </Paragraph>
-            </Paragraphs>
-            <rd:DefaultName>DataStart</rd:DefaultName>
-            <Top>11.76107mm</Top>
-            <Left>32.90591mm</Left>
-            <Height>6mm</Height>
-            <Width>31.56433mm</Width>
-            <ZIndex>3</ZIndex>
-            <Style>
-              <Border>
-                <Style>None</Style>
-              </Border>
-              <PaddingLeft>2pt</PaddingLeft>
-              <PaddingRight>2pt</PaddingRight>
-              <PaddingTop>2pt</PaddingTop>
-              <PaddingBottom>2pt</PaddingBottom>
-            </Style>
-          </Textbox>
           <Textbox Name="Textbox60">
             <CanGrow>true</CanGrow>
             <CanShrink>true</CanShrink>
@@ -377,12 +274,30 @@ WHERE Active = 1</CommandText>
               <Paragraph>
                 <TextRuns>
                   <TextRun>
-                    <Value>с</Value>
+                    <Value>c </Value>
                     <Style />
+                  </TextRun>
+                  <TextRun>
+                    <Value>=Parameters!DateStart.Value</Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
+                  </TextRun>
+                  <TextRun>
+                    <Value>  по </Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
+                  </TextRun>
+                  <TextRun>
+                    <Value>=DateAdd("s", -1, DateAdd("d", 1, Parameters!DateEnd.Value))</Value>
+                    <Style>
+                      <Format>D</Format>
+                    </Style>
                   </TextRun>
                 </TextRuns>
                 <Style>
-                  <TextAlign>Right</TextAlign>
+                  <TextAlign>Left</TextAlign>
                 </Style>
               </Paragraph>
             </Paragraphs>
@@ -390,8 +305,8 @@ WHERE Active = 1</CommandText>
             <Top>11.76107mm</Top>
             <Left>28.96874mm</Left>
             <Height>6mm</Height>
-            <Width>3.93717mm</Width>
-            <ZIndex>4</ZIndex>
+            <Width>193.33118mm</Width>
+            <ZIndex>1</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -424,7 +339,7 @@ WHERE Active = 1</CommandText>
             <Left>0mm</Left>
             <Height>6mm</Height>
             <Width>28.96874mm</Width>
-            <ZIndex>5</ZIndex>
+            <ZIndex>2</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -682,7 +597,7 @@ WHERE Active = 1</CommandText>
                           <Paragraph>
                             <TextRuns>
                               <TextRun>
-                                <Value>Итого адресатов с активной перепиской</Value>
+                                <Value>  Итого адресатов с активной перепиской</Value>
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>9pt</FontSize>
@@ -712,10 +627,7 @@ WHERE Active = 1</CommandText>
                           </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
                           <VerticalAlign>Middle</VerticalAlign>
-                          <PaddingLeft>2pt</PaddingLeft>
-                          <PaddingRight>2pt</PaddingRight>
-                          <PaddingTop>2pt</PaddingTop>
-                          <PaddingBottom>6pt</PaddingBottom>
+                          <PaddingBottom>5pt</PaddingBottom>
                           <WritingMode>Rotate270</WritingMode>
                         </Style>
                       </Textbox>
@@ -729,7 +641,7 @@ WHERE Active = 1</CommandText>
                           <Paragraph>
                             <TextRuns>
                               <TextRun>
-                                <Value>Итого отправлено ЭД в формате 2.7.1</Value>
+                                <Value>  Итого отправлено ЭД в формате 2.7.1</Value>
                                 <Style>
                                   <FontFamily>Tahoma</FontFamily>
                                   <FontSize>9pt</FontSize>
@@ -758,10 +670,7 @@ WHERE Active = 1</CommandText>
                           </RightBorder>
                           <BackgroundColor>White</BackgroundColor>
                           <VerticalAlign>Middle</VerticalAlign>
-                          <PaddingLeft>2pt</PaddingLeft>
-                          <PaddingRight>2pt</PaddingRight>
-                          <PaddingTop>2pt</PaddingTop>
-                          <PaddingBottom>6pt</PaddingBottom>
+                          <PaddingBottom>5pt</PaddingBottom>
                           <WritingMode>Rotate270</WritingMode>
                         </Style>
                       </Textbox>
@@ -791,7 +700,7 @@ WHERE Active = 1</CommandText>
                                   <Value>=IIF(Fields!CountNewVersionED.Value = -1, " ", Fields!CountNewVersionED.Value)</Value>
                                   <Style>
                                     <FontFamily>Tahoma</FontFamily>
-                                    <FontSize>8pt</FontSize>
+                                    <FontSize>=IIF(Fields!CountNewVersionED.Value &gt;= 1000, "6.5pt", "8pt")</FontSize>
                                     <Format>#,0</Format>
                                     <Color>=SWITCH(Fields!SenderGuid.Value = Fields!RecipientGuid.Value AND Fields!CountNewVersionED.Value = 0, "#a6a6a6",Fields!SenderGuid.Value &lt;&gt; Fields!RecipientGuid.Value AND Fields!CountNewVersionED.Value = 0, "White", Fields!CountNewVersionED.Value &gt;0 AND Fields!CountNewVersionED.Value &lt; 3,"Black", Fields!CountNewVersionED.Value &gt;= 3, "DarkGreen")</Color>
                                   </Style>
@@ -818,10 +727,6 @@ WHERE Active = 1</CommandText>
                             </RightBorder>
                             <BackgroundColor>=Switch( Fields!SenderGuid.Value = Fields!RecipientGuid.Value, "#a6a6a6", Fields!CountNewVersionED.Value  &gt; 2,"#"+Format(209-CInt(70*Fields!CountNewVersionED.Value/Variables!MaxCountED.Value), "X2")+""+Format(223-CInt(70*Fields!CountNewVersionED.Value/Variables!MaxCountED.Value), "X2")+""+Format(180-CInt(80*Fields!CountNewVersionED.Value/Variables!MaxCountED.Value), "X2"), Fields!SenderGuid.Value &lt;&gt; Fields!RecipientGuid.Value AND Fields!CountNewVersionED.Value  &lt;=2 , "White")</BackgroundColor>
                             <VerticalAlign>Middle</VerticalAlign>
-                            <PaddingLeft>4pt</PaddingLeft>
-                            <PaddingRight>2pt</PaddingRight>
-                            <PaddingTop>2pt</PaddingTop>
-                            <PaddingBottom>2pt</PaddingBottom>
                           </Style>
                         </Textbox>
                       </CellContents>
@@ -849,13 +754,21 @@ WHERE Active = 1</CommandText>
                   <TablixMembers>
                     <TablixMember>
                       <TablixHeader>
-                        <Size>7cm</Size>
+                        <Size>8cm</Size>
                         <CellContents>
                           <Textbox Name="Textbox62">
                             <KeepTogether>true</KeepTogether>
                             <Paragraphs>
                               <Paragraph>
                                 <TextRuns>
+                                  <TextRun>
+                                    <Value xml:space="preserve">  </Value>
+                                    <Style>
+                                      <FontFamily>Tahoma</FontFamily>
+                                      <FontSize>8pt</FontSize>
+                                      <Color>Gray</Color>
+                                    </Style>
+                                  </TextRun>
                                   <TextRun>
                                     <Value>=Lookup(Fields!RecipientGuid.Value, Fields!Guid.Value, Fields!Name.Value, "GetMembers")</Value>
                                     <Style>
@@ -865,7 +778,9 @@ WHERE Active = 1</CommandText>
                                     </Style>
                                   </TextRun>
                                 </TextRuns>
-                                <Style />
+                                <Style>
+                                  <TextAlign>Left</TextAlign>
+                                </Style>
                               </Paragraph>
                             </Paragraphs>
                             <rd:DefaultName>Textbox58</rd:DefaultName>
@@ -884,10 +799,7 @@ WHERE Active = 1</CommandText>
                               </RightBorder>
                               <BackgroundColor>White</BackgroundColor>
                               <VerticalAlign>Middle</VerticalAlign>
-                              <PaddingLeft>4pt</PaddingLeft>
-                              <PaddingRight>2pt</PaddingRight>
-                              <PaddingTop>2pt</PaddingTop>
-                              <PaddingBottom>2pt</PaddingBottom>
+                              <PaddingBottom>5pt</PaddingBottom>
                               <WritingMode>Rotate270</WritingMode>
                             </Style>
                           </Textbox>
@@ -958,7 +870,7 @@ WHERE Active = 1</CommandText>
                   <TablixMembers>
                     <TablixMember>
                       <TablixHeader>
-                        <Size>0.8cm</Size>
+                        <Size>1cm</Size>
                         <CellContents>
                           <Textbox Name="Textbox3">
                             <KeepTogether>true</KeepTogether>
@@ -994,10 +906,6 @@ WHERE Active = 1</CommandText>
                               </RightBorder>
                               <BackgroundColor>White</BackgroundColor>
                               <VerticalAlign>Middle</VerticalAlign>
-                              <PaddingLeft>4pt</PaddingLeft>
-                              <PaddingRight>2pt</PaddingRight>
-                              <PaddingTop>2pt</PaddingTop>
-                              <PaddingBottom>2pt</PaddingBottom>
                             </Style>
                           </Textbox>
                         </CellContents>
@@ -1005,7 +913,7 @@ WHERE Active = 1</CommandText>
                       <TablixMembers>
                         <TablixMember>
                           <TablixHeader>
-                            <Size>0.8cm</Size>
+                            <Size>1cm</Size>
                             <CellContents>
                               <Textbox Name="Textbox5">
                                 <KeepTogether>true</KeepTogether>
@@ -1042,10 +950,6 @@ WHERE Active = 1</CommandText>
                                   </RightBorder>
                                   <BackgroundColor>White</BackgroundColor>
                                   <VerticalAlign>Middle</VerticalAlign>
-                                  <PaddingLeft>4pt</PaddingLeft>
-                                  <PaddingRight>2pt</PaddingRight>
-                                  <PaddingTop>2pt</PaddingTop>
-                                  <PaddingBottom>2pt</PaddingBottom>
                                 </Style>
                               </Textbox>
                             </CellContents>
@@ -1063,9 +967,9 @@ WHERE Active = 1</CommandText>
             <FixedRowHeaders>true</FixedRowHeaders>
             <DataSetName>Report10</DataSetName>
             <Top>1.84666cm</Top>
-            <Height>7.67cm</Height>
-            <Width>9.27cm</Width>
-            <ZIndex>6</ZIndex>
+            <Height>8.67cm</Height>
+            <Width>9.67cm</Width>
+            <ZIndex>3</ZIndex>
             <Style>
               <Border>
                 <Style>None</Style>
@@ -1073,7 +977,7 @@ WHERE Active = 1</CommandText>
             </Style>
           </Tablix>
         </ReportItems>
-        <Height>95.1666mm</Height>
+        <Height>105.1666mm</Height>
         <Style>
           <Border>
             <Style>None</Style>
@@ -1213,9 +1117,10 @@ WHERE Active = 1</CommandText>
       </CellDefinitions>
     </GridLayoutDefinition>
   </ReportParametersLayout>
+  <Language>ru-RU</Language>
   <Variables>
     <Variable Name="MaxCountED">
-      <Value>=MAX(Fields!ALLCountNewVersionED.Value, "Report10")</Value>
+      <Value>=MAX(Fields!CountNewVersionED.Value, "Report10")</Value>
     </Variable>
   </Variables>
   <rd:ReportUnitType>Cm</rd:ReportUnitType>
