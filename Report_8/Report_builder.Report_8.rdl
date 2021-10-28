@@ -1395,6 +1395,7 @@ FROM (
       </CellDefinitions>
     </GridLayoutDefinition>
   </ReportParametersLayout>
+  <Language>ru-RU</Language>
   <rd:ReportUnitType>Cm</rd:ReportUnitType>
   <rd:ReportID>21b49ffa-40d0-41df-b8a2-4c5852e84d34</rd:ReportID>
 </Report>

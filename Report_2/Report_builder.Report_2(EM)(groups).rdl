@@ -2245,6 +2245,7 @@ FROM (
       </CellDefinitions>
     </GridLayoutDefinition>
   </ReportParametersLayout>
+  <Language>ru-RU</Language>
   <Variables>
     <Variable Name="MinCD">
       <Value>=Min(Fields!ChangesDynamic.Value, "Report1")</Value>

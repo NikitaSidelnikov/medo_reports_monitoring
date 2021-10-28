@@ -1238,6 +1238,7 @@ FROM Member </CommandText>
       </CellDefinitions>
     </GridLayoutDefinition>
   </ReportParametersLayout>
+  <Language>ru-RU</Language>
   <Variables>
     <Variable Name="MaxCountED">
       <Value>=MAX(Fields!ALLCountNewVersionED.Value, "Report10")</Value>

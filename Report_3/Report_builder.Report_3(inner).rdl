@@ -2921,6 +2921,7 @@ ORDER BY Name ASC</CommandText>
       </CellDefinitions>
     </GridLayoutDefinition>
   </ReportParametersLayout>
+  <Language>ru-RU</Language>
   <rd:ReportUnitType>Cm</rd:ReportUnitType>
   <rd:ReportID>ef08f9e6-2644-4f0e-adcd-4a3dcade83a8</rd:ReportID>
 </Report>
